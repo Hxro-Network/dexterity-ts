@@ -1,0 +1,788 @@
+{
+  "version": "0.1.0",
+  "name": "risk_engine_program",
+  "constants": [
+    {
+      "name": "MAX_CORRELATION_SIZE",
+      "type": "u64",
+      "value": "8256"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "validateAccountHealth",
+      "accounts": [
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "traderRiskGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskOutputRegister",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "varianceCache",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskModelConfiguration",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskSigner",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "covarianceMetadata",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "correlationMatrix",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "markPrices",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "validateAccountLiquidation",
+      "accounts": [
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "traderRiskGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskOutputRegister",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "varianceCache",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskModelConfiguration",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskSigner",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "covarianceMetadata",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "correlationMatrix",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "markPrices",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "createRiskStateAccount",
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "riskSigner",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "varianceCache",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initializeCovarianceMatrix",
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "covarianceMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "correlationMatrix",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "updateCovarianceMatrix",
+      "accounts": [
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "covarianceMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "correlationMatrix",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "productKeys",
+          "type": {
+            "vec": "publicKey"
+          }
+        },
+        {
+          "name": "standardDeviations",
+          "type": {
+            "vec": "f32"
+          }
+        },
+        {
+          "name": "correlations",
+          "type": {
+            "vec": {
+              "vec": "f32"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initializeMarkPrices",
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "markPrices",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "isHardcodedOracle",
+          "type": "bool"
+        },
+        {
+          "name": "hardcodedOracle",
+          "type": {
+            "vec": "publicKey"
+          }
+        },
+        {
+          "name": "hardcodedOracleType",
+          "type": {
+            "defined": "OracleType"
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateMarkPrices",
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "markPrices",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "CorrelationMatrix",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "defined": "RiskAccountTag"
+            }
+          },
+          {
+            "name": "numActiveProducts",
+            "type": "u64"
+          },
+          {
+            "name": "correlations",
+            "type": {
+              "array": [
+                "i8",
+                8256
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CovarianceMetadata",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "defined": "RiskAccountTag"
+            }
+          },
+          {
+            "name": "updateSlot",
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "type": "publicKey"
+          },
+          {
+            "name": "numActiveProducts",
+            "type": "u64"
+          },
+          {
+            "name": "productKeys",
+            "type": {
+              "array": [
+                "publicKey",
+                128
+              ]
+            }
+          },
+          {
+            "name": "standardDeviations",
+            "type": {
+              "array": [
+                {
+                  "defined": "FastInt"
+                },
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarkPricesArray",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "updateSlot",
+            "type": "u64"
+          },
+          {
+            "name": "array",
+            "type": {
+              "array": [
+                {
+                  "defined": "MarkPrice"
+                },
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PaddedMarkPricesArray",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "isHardcodedOracle",
+            "type": "bool"
+          },
+          {
+            "name": "hardcodedOracle",
+            "type": "publicKey"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "hardcodedOracleType",
+            "type": {
+              "defined": "OracleType"
+            }
+          },
+          {
+            "name": "padding2",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "array",
+            "type": {
+              "array": [
+                {
+                  "defined": "PaddedMarkPrice"
+                },
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VarianceCache",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "defined": "RiskAccountTag"
+            }
+          },
+          {
+            "name": "updateSlot",
+            "type": "u64"
+          },
+          {
+            "name": "positionValue",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "totalVariance",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "openOrderVariance",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "productIndexes",
+            "type": {
+              "array": [
+                "u64",
+                32
+              ]
+            }
+          },
+          {
+            "name": "positions",
+            "type": {
+              "array": [
+                {
+                  "defined": "FastInt"
+                },
+                32
+              ]
+            }
+          },
+          {
+            "name": "sigmaP",
+            "type": {
+              "array": [
+                {
+                  "defined": "FastInt"
+                },
+                32
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "OracleType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "Pyth"
+          },
+          {
+            "name": "Dummy"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FastInt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "value",
+            "type": "i128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fractional",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "m",
+            "type": "i64"
+          },
+          {
+            "name": "exp",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarkPrice",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "productKey",
+            "type": "publicKey"
+          },
+          {
+            "name": "markPrice",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "prevOracleMinusBookEwma",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "oracleMinusBookEwma",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "updateSlot",
+            "type": "u64"
+          },
+          {
+            "name": "qualifyingBidPrice",
+            "type": {
+              "option": {
+                "defined": "Fractional"
+              }
+            }
+          },
+          {
+            "name": "qualifyingAskPrice",
+            "type": {
+              "option": {
+                "defined": "Fractional"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PaddedMarkPrice",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "productKey",
+            "type": "publicKey"
+          },
+          {
+            "name": "markPrice",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "prevOracleMinusBookEwma",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "oracleMinusBookEwma",
+            "type": {
+              "defined": "FastInt"
+            }
+          },
+          {
+            "name": "updateSlot",
+            "type": "u64"
+          },
+          {
+            "name": "isQualifyingBidPriceSome",
+            "type": "bool"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "qualifyingBidPrice",
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "isQualifyingBidPriceSome",
+            "type": "bool"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "qualifyingBidPrice",
+            "type": {
+              "defined": "Fractional"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RiskError",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "InvalidAccountTag"
+          },
+          {
+            "name": "AccountAlreadyInitialized"
+          },
+          {
+            "name": "InvalidRiskSigner"
+          },
+          {
+            "name": "InvalidAccountOwner"
+          },
+          {
+            "name": "InvalidAccountAddress"
+          },
+          {
+            "name": "InvalidCovarianceAuthority"
+          },
+          {
+            "name": "InvalidCovarianceMatrixAccess"
+          },
+          {
+            "name": "MissingCovarianceEntry"
+          },
+          {
+            "name": "InvalidSqrtInput"
+          },
+          {
+            "name": "InvalidCovarianceInput"
+          },
+          {
+            "name": "MissingBBOForMarkPrice"
+          },
+          {
+            "name": "NumericalOverflow"
+          },
+          {
+            "name": "UnexpectedProductType"
+          },
+          {
+            "name": "UnexpectedResult"
+          },
+          {
+            "name": "MismatchedRiskStateAccount"
+          },
+          {
+            "name": "FailedToFindCacheIndexForLeg"
+          },
+          {
+            "name": "ComboSizeGreaterThanCollectionLen"
+          },
+          {
+            "name": "InvalidMarkPriceAccountsLen"
+          },
+          {
+            "name": "MismatchedOraclePriceAccount"
+          },
+          {
+            "name": "MissingMarkPrice"
+          },
+          {
+            "name": "IncorrectMarkPricesBump"
+          },
+          {
+            "name": "MarkPricesArrayIsFull"
+          },
+          {
+            "name": "MarkPricesOutOfDate"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RiskAccountTag",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "CovarianceMetadata"
+          },
+          {
+            "name": "CorrelationMatrix"
+          },
+          {
+            "name": "VarianceCache"
+          }
+        ]
+      }
+    }
+  ]
+}

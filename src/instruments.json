@@ -1,0 +1,480 @@
+{
+  "version": "0.1.0",
+  "name": "instruments",
+  "instructions": [
+    {
+      "name": "initializeDerivative",
+      "accounts": [
+        {
+          "name": "derivativeMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "priceOracle",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "clock",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": "InitializeDerivativeParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "settleDerivative",
+      "accounts": [
+        {
+          "name": "marketProductGroup",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "derivativeMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "priceOracle",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "dexProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "clock",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "closeDerivativeAccount",
+      "accounts": [
+        {
+          "name": "derivativeMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "closeAuthority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "destination",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "DerivativeMetadata",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "defined": "AccountTag"
+            }
+          },
+          {
+            "name": "expired",
+            "type": {
+              "defined": "ExpirationStatus"
+            }
+          },
+          {
+            "name": "oracleType",
+            "type": {
+              "defined": "OracleType"
+            }
+          },
+          {
+            "name": "instrumentType",
+            "type": {
+              "defined": "InstrumentType"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u64"
+          },
+          {
+            "name": "strike",
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "initializationTime",
+            "type": "u64"
+          },
+          {
+            "name": "fullFundingPeriod",
+            "type": "u64"
+          },
+          {
+            "name": "minimumFundingPeriod",
+            "type": "u64"
+          },
+          {
+            "name": "priceOracle",
+            "type": "publicKey"
+          },
+          {
+            "name": "marketProductGroup",
+            "type": "publicKey"
+          },
+          {
+            "name": "closeAuthority",
+            "type": "publicKey"
+          },
+          {
+            "name": "clock",
+            "type": "publicKey"
+          },
+          {
+            "name": "lastFundingTime",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PaddedDerivativeMetadata",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "defined": "AccountTag"
+            }
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "expired",
+            "type": {
+              "defined": "ExpirationStatus"
+            }
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "oracleType",
+            "type": {
+              "defined": "OracleType"
+            }
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "instrumentType",
+            "type": {
+              "defined": "InstrumentType"
+            }
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u64"
+          },
+          {
+            "name": "strike",
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "initializationTime",
+            "type": "u64"
+          },
+          {
+            "name": "fullFundingPeriod",
+            "type": "u64"
+          },
+          {
+            "name": "minimumFundingPeriod",
+            "type": "u64"
+          },
+          {
+            "name": "priceOracle",
+            "type": "publicKey"
+          },
+          {
+            "name": "marketProductGroup",
+            "type": "publicKey"
+          },
+          {
+            "name": "closeAuthority",
+            "type": "publicKey"
+          },
+          {
+            "name": "clock",
+            "type": "publicKey"
+          },
+          {
+            "name": "lastFundingTime",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "InitializeDerivativeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "instrumentType",
+            "docs": [
+              "CALL or PUT (perpetuals are just calls with 0 strike price)"
+            ],
+            "type": {
+              "defined": "InstrumentType"
+            }
+          },
+          {
+            "name": "strike",
+            "docs": [
+              "Strike price of an option, 0 for for perpetual swaps and futures"
+            ],
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "fullFundingPeriod",
+            "docs": [
+              "Number of seconds for a 100% interest payment"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "minimumFundingPeriod",
+            "docs": [
+              "Number of seconds for a minimum funding period (< 100%)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "initializationTime",
+            "type": "u64"
+          },
+          {
+            "name": "closeAuthority",
+            "type": "publicKey"
+          },
+          {
+            "name": "oracleType",
+            "type": {
+              "defined": "OracleType"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DerivativeError",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "AccountAlreadyInitialized"
+          },
+          {
+            "name": "InvalidSettlementTime"
+          },
+          {
+            "name": "InvalidCreationTime"
+          },
+          {
+            "name": "UninitializedAccount"
+          },
+          {
+            "name": "InvalidSequenceNumber"
+          },
+          {
+            "name": "UnsettledAccounts"
+          },
+          {
+            "name": "InvalidOracleConfig"
+          },
+          {
+            "name": "NumericalOverflow"
+          },
+          {
+            "name": "CannotBeDeleted"
+          },
+          {
+            "name": "ContractIsExpired"
+          },
+          {
+            "name": "InvalidDate"
+          },
+          {
+            "name": "InvalidAccount"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AccountTag",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "DerivativeMetadata"
+          },
+          {
+            "name": "FixedIncomeMetadata"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InstrumentType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "RecurringCall"
+          },
+          {
+            "name": "RecurringPut"
+          },
+          {
+            "name": "ExpiringCall"
+          },
+          {
+            "name": "ExpiringPut"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "Pyth"
+          },
+          {
+            "name": "Dummy"
+          },
+          {
+            "name": "Switchboard"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fractional",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "m",
+            "type": "i64"
+          },
+          {
+            "name": "exp",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExpirationStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Expired"
+          },
+          {
+            "name": "Expiring"
+          }
+        ]
+      }
+    }
+  ]
+}
