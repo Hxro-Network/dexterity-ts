@@ -644,6 +644,16 @@
       "name": "closeTraderRiskGroup",
       "accounts": [
         {
+          "name": "riskEngineProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskSigner",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
           "name": "owner",
           "isMut": true,
           "isSigner": true
@@ -659,8 +669,18 @@
           "isSigner": false
         },
         {
+          "name": "traderRiskStateAcct",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "receiver",
           "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
           "isSigner": false
         }
       ],
@@ -837,27 +857,27 @@
         },
         {
           "name": "covarianceMetadata",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "correlationMatrix",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "markPrices",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "stakePool",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "stakerState",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         }
       ],
@@ -866,6 +886,154 @@
           "name": "params",
           "type": {
             "defined": "NewOrderParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "multiplace",
+      "accounts": [
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "traderRiskGroup",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "product",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "aaobProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "orderbook",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketSigner",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "eventQueue",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "bids",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "asks",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "feeModelProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "feeModelConfigurationAcct",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "traderFeeStateAcct",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "feeOutputRegister",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskEngineProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskModelConfigurationAcct",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskOutputRegister",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "traderRiskStateAcct",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskAndFeeSigner",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "referrerTrg",
+          "isMut": true,
+          "isSigner": false,
+          "docs": [
+            "referrer_trg receives a programmatic percentage of taker fees",
+            "sdks route this back to the user's trg",
+            "frontends will want to route this to their own trg"
+          ]
+        },
+        {
+          "name": "covarianceMetadata",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "correlationMatrix",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "markPrices",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "stakePool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "stakerState",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": "MultiplaceParams"
           }
         }
       ]
@@ -1057,6 +1225,87 @@
       ]
     },
     {
+      "name": "cancelAll",
+      "accounts": [
+        {
+          "name": "user",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "traderRiskGroup",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketProductGroup",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "product",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "aaobProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "orderbook",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketSigner",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "eventQueue",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "bids",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "asks",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskEngineProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskModelConfigurationAcct",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "riskOutputRegister",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "traderRiskStateAcct",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "riskSigner",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "depositFunds",
       "accounts": [
         {
@@ -1174,17 +1423,17 @@
         },
         {
           "name": "covarianceMetadata",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "correlationMatrix",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         },
         {
           "name": "markPrices",
-          "isMut": true,
+          "isMut": false,
           "isSigner": false
         }
       ],
@@ -1683,13 +1932,26 @@
             "type": "publicKey"
           },
           {
-            "name": "padding0",
+            "name": "closeRiskStateAccountDiscriminant",
             "type": {
               "array": [
                 "u8",
-                7
+                8
               ]
             }
+          },
+          {
+            "name": "closeFeeStateAccountDiscriminant",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "isUpgradeModeOn",
+            "type": "bool"
           }
         ]
       }
@@ -1793,16 +2055,6 @@
             "type": "publicKey"
           },
           {
-            "name": "clientOrderId",
-            "type": "u128"
-          },
-          {
-            "name": "openOrders",
-            "type": {
-              "defined": "PaddedOpenOrders"
-            }
-          },
-          {
             "name": "lockedCollateral",
             "type": {
               "array": [
@@ -1835,6 +2087,21 @@
             "name": "referralFees",
             "type": {
               "defined": "Fractional"
+            }
+          },
+          {
+            "name": "unused0",
+            "type": {
+              "array": [
+                "u8",
+                256
+              ]
+            }
+          },
+          {
+            "name": "openOrders",
+            "type": {
+              "defined": "PaddedOpenOrders"
             }
           }
         ]
@@ -2417,23 +2684,28 @@
         "fields": [
           {
             "name": "askQtyInBook",
-            "type": {
-              "defined": "Fractional"
-            }
+            "type": "i64"
           },
           {
             "name": "bidQtyInBook",
-            "type": {
-              "defined": "Fractional"
-            }
+            "type": "i64"
           },
           {
             "name": "headIndex",
-            "type": "u64"
+            "type": "u16"
           },
           {
             "name": "numOpenOrders",
-            "type": "u64"
+            "type": "u16"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
           }
         ]
       }
@@ -2445,11 +2717,24 @@
         "fields": [
           {
             "name": "freeListHead",
-            "type": "u64"
+            "type": "u16"
           },
           {
             "name": "totalOpenOrders",
-            "type": "u64"
+            "type": "u16"
+          },
+          {
+            "name": "maxOpenOrders",
+            "type": "u16"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
           },
           {
             "name": "products",
@@ -2469,7 +2754,7 @@
                 {
                   "defined": "OpenOrdersNode"
                 },
-                1024
+                100
               ]
             }
           }
@@ -2533,11 +2818,20 @@
           },
           {
             "name": "prev",
-            "type": "u64"
+            "type": "u16"
           },
           {
             "name": "next",
-            "type": "u64"
+            "type": "u16"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
           }
         ]
       }
@@ -2603,11 +2897,23 @@
             }
           },
           {
+            "name": "markPriceQualifyingCumValue",
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "markPriceMaxQualifyingWidth",
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
             "name": "padding",
             "type": {
               "array": [
                 "u64",
-                14
+                10
               ]
             }
           }
@@ -3565,6 +3871,169 @@
       }
     },
     {
+      "name": "MultiplaceParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "matchLimit",
+            "docs": [
+              "The maximum number of orders to be matched against.",
+              "Setting this number too high can sometimes lead to excessive resource consumption which can cause a failure."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "referrerFeeBps",
+            "docs": [
+              "In addition to taker fees; routed to referrer_trg; can be zero",
+              "Should be used like this: 3bps -> use the value Fractional{ m: 3, exp: 4 }",
+              "Min: 0; Max: 100bps."
+            ],
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "selfTradeBehavior",
+            "docs": [
+              "Configures what happens when this order is at least partially matched against an order belonging to the same user account"
+            ],
+            "type": {
+              "defined": "SelfTradeBehavior"
+            }
+          },
+          {
+            "name": "numNewOrders",
+            "type": "u8"
+          },
+          {
+            "name": "newOrder0",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder1",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder2",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder3",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder4",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder5",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder6",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder7",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder8",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder9",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder10",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          },
+          {
+            "name": "newOrder11",
+            "type": {
+              "defined": "MultiplaceParam"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MultiplaceParam",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "side",
+            "docs": [
+              "The order's side (Bid or Ask)"
+            ],
+            "type": {
+              "defined": "Side"
+            }
+          },
+          {
+            "name": "maxBaseQty",
+            "docs": [
+              "The max quantity of base token to match and post"
+            ],
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "limitPrice",
+            "docs": [
+              "The order's limit price in ticks"
+            ],
+            "type": {
+              "defined": "Fractional"
+            }
+          },
+          {
+            "name": "clientOrderId",
+            "docs": [
+              "Order id that can be specified by client. Can be arbitrary u64. Defaults to the value 0."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "orderType",
+            "docs": [
+              "The order type (supported types include Limit, FOK, IOC and PostOnly)"
+            ],
+            "type": {
+              "defined": "OrderType"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ConsumeOrderbookEventsParams",
       "type": {
         "kind": "struct",
@@ -3718,7 +4187,8 @@
             "name": "ProgramErr",
             "fields": [
               {
-                "defined": "ProgramError"
+                "name": "value",
+                "type": "u8"
               }
             ]
           },
@@ -4173,30 +4643,6 @@
           },
           {
             "name": "NotApproved"
-          }
-        ]
-      }
-    },
-    {
-      "name": "TwoIterators",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "A",
-            "fields": [
-              {
-                "defined": "X"
-              }
-            ]
-          },
-          {
-            "name": "B",
-            "fields": [
-              {
-                "defined": "Y"
-              }
-            ]
           }
         ]
       }

@@ -292,7 +292,12 @@
           "isSigner": false
         }
       ],
-      "args": []
+      "args": [
+          {
+              "name": "numProducts",
+              "type": "u8"
+          }
+      ]
     }
   ],
   "accounts": [

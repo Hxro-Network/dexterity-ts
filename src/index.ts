@@ -9,14 +9,12 @@ const WebSocketWtf = require('isomorphic-ws');
 const WebSocket = WebSocketWtf.default;
 global.Buffer = global.Buffer || require('buffer').Buffer;
 
-import { Idl, Program, AnchorProvider, Wallet } from '@project-serum/anchor';
+import { Idl, Program, AnchorProvider, Wallet, web3 } from '@coral-xyz/anchor';
 import {
     createAssociatedTokenAccount, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress,
-    getAccount, TOKEN_PROGRAM_ID
+    getAccount, TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
-import web3 from '@solana/web3.js';
-import { AddressLookupTableAccount, Commitment, ComputeBudgetProgram, ConfirmOptions, Connection, PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { EventQueue, EventQueueHeader, MarketState, Slab, LeafNode } from '@bonfida/aaob';
+import { EventFill, EventOut, EventQueue, EventQueueHeader, MarketState, Slab, LeafNode } from '@bonfida/aaob';
 
 Object.defineProperty(EventQueueHeader, 'LEN', {
     configurable: true,
@@ -25,15 +23,15 @@ Object.defineProperty(EventQueueHeader, 'LEN', {
 });
 //ADDED WALLET IMPLEMENTATION
 export type DexterityWallet = {
-    publicKey: PublicKey,
-    signTransaction: <T extends Transaction | VersionedTransaction>(transaction: T) => Promise<T>,
-    signAllTransactions: <T extends Transaction | VersionedTransaction>(transactions: T[]) => Promise<T[]>
+    publicKey: web3.PublicKey,
+    signTransaction: <T extends web3.Transaction | web3.VersionedTransaction>(transaction: T) => Promise<T>,
+    signAllTransactions: <T extends web3.Transaction | web3.VersionedTransaction>(transactions: T[]) => Promise<T[]>
 }
 
-const DEX_ID = new PublicKey('FUfpR31LmcP1VSbz5zDaM7nxnH55iBHkpwusgrnhaFjL');
-const INSTRUMENTS_ID = new PublicKey('8981bZYszfz1FrFVx7gcUm61RfawMoAHnURuERRJKdkq');
-const RISK_ID = new PublicKey('92wdgEqyiDKrcbFHoBTg8HxMj932xweRCKaciGSW3uMr');
-const STAKING_ID = new PublicKey("2jmux3fWV5zHirkEZCoSMEgTgdYZqkE9Qx2oQnxoHRgA");
+const DEX_ID = new web3.PublicKey('FUfpR31LmcP1VSbz5zDaM7nxnH55iBHkpwusgrnhaFjL');
+const INSTRUMENTS_ID = new web3.PublicKey('8981bZYszfz1FrFVx7gcUm61RfawMoAHnURuERRJKdkq');
+const RISK_ID = new web3.PublicKey('92wdgEqyiDKrcbFHoBTg8HxMj932xweRCKaciGSW3uMr');
+const STAKING_ID = new web3.PublicKey("2jmux3fWV5zHirkEZCoSMEgTgdYZqkE9Qx2oQnxoHRgA");
 
 // @ts-ignore
 const DEX_IDL: Idl = untyped_dex_idl;
@@ -45,41 +43,56 @@ const RISK_IDL: Idl = untyped_risk_idl;
 const SENTINEL = 0;
 const UNINITIALIZED = '11111111111111111111111111111111';
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
-const MPG_SIZE = 143944;
-const TRG_SIZE = 64336;
+const MPG_SIZE = 143960;
+const TRG_SIZE = 13272;
 const MAX_OUTRIGHTS = 128;
 
 const MAX_COMPUTE_UNITS = 1400000; // 1.4m is solana's max
 const MAX_CANCELS_PER_TX = 10;
 
+const ORACLE_TYPE_PYTH = 1;
+const INSTRUMENT_TYPE_RECURRING_CALL = 1;
+const INSTRUMENT_TYPE_EXPIRING_CALL = 2;
+
 let rpc2manifest = new Map(); // maps rpc url to manifest (AAOB, DEX, FEES, RISK, MPGs, products, orderbooks, etc.)
 let account2WebSocket = new Map(); // maps rpc:account to websocket
 
-interface Product {
+enum OrderType {
+    Limit,
+    ImmediateOrCancel,
+    FillOrKill,
+    PostOnly,
+}
 
+interface Product {
+    combo,
+    outright,
 }
 
 export interface MarketProductGroup {
-    feeModelProgramId: PublicKey;
-    feeModelConfigurationAcct: PublicKey;
-    feeOutputRegister: PublicKey;
-    riskEngineProgramId: PublicKey;
-    riskModelConfigurationAcct: PublicKey;
-    riskOutputRegister: PublicKey;
-    vaultMint: PublicKey;
-    addressLookupTable: PublicKey;
+    feeModelProgramId: web3.PublicKey;
+    feeModelConfigurationAcct: web3.PublicKey;
+    feeOutputRegister: web3.PublicKey;
+    riskEngineProgramId: web3.PublicKey;
+    riskModelConfigurationAcct: web3.PublicKey;
+    riskOutputRegister: web3.PublicKey;
+    vaultMint: web3.PublicKey;
+    addressLookupTable: web3.PublicKey;
 
     marketProducts: { array: Array<Product> }
 }
 
 export interface TraderRiskGroup {
-    feeStateAccount: PublicKey;
-    marketProductGroup: PublicKey;
-    owner: PublicKey;
-    riskStateAccount: PublicKey;
+    feeStateAccount: web3.PublicKey;
+    marketProductGroup: web3.PublicKey;
+    owner: web3.PublicKey;
+    riskStateAccount: web3.PublicKey;
 
     openOrders: {
-        products: Array<{ headIndex: BN }>;
+        maxOpenOrders: BN;
+        products: Array<{
+            headIndex: BN;
+        }>;
         orders: Array<{
             id: BN;
             qty: BN;
@@ -90,7 +103,7 @@ export interface TraderRiskGroup {
     traderPositions: Array<{
         tag: Object;
         productIndex: number;
-        productKey: PublicKey;
+        productKey: web3.PublicKey;
         position: SimpleFractional;
     }>;
 
@@ -109,7 +122,7 @@ interface I128 {
 }
 
 export interface MarkPrice {
-    productKey: PublicKey;
+    productKey: web3.PublicKey;
     markPrice: I128;
     prevOracleMinusBookEwma: I128;
     oracleMinusBookEwma: I128;
@@ -117,12 +130,14 @@ export interface MarkPrice {
 
 export interface MarkPricesArray {
     isHardcodedOracle: boolean;
-    hardcodedOracle: PublicKey;
+    hardcodedOracle: web3.PublicKey;
     array: Array<MarkPrice>;
 }
 
 interface DerivativeMetadata {
-    priceOracle: PublicKey;
+    priceOracle: web3.PublicKey;
+    instrumentType: number;
+    oracleType: number;
     // TODO
 }
 
@@ -174,19 +189,21 @@ class ReliableWebSocket {
 function toWebSocket(httpEndpoint) {
     return httpEndpoint.replace('https://', 'wss://')
         .replace('http://', 'ws://')
+        .replace('127.0.0.1:8899', '127.0.0.1:8900')
+        .replace('::1:8899', '::1:8900')
         .replace('localhost:8899', 'localhost:8900');
 }
 
 export type ManifestFields = {
     rpc: string;
     wallet: DexterityWallet | Wallet;
-    connection: Connection;
+    connection: web3.Connection;
     dexProgram: Program;
     instrumentsProgram: Program;
     riskProgram: Program;
-    aaob_id: PublicKey;
-    dex_id: PublicKey;
-    mpgs: Map<string, { pubkey: PublicKey, mpg: MarketProductGroup, orderbooks: Map<string, MarketState>, covarianceMetadata: CovarianceMetadata }>;
+    aaob_id: web3.PublicKey;
+    dex_id: web3.PublicKey;
+    mpgs: Map<string, { pubkey: web3.PublicKey, mpg: MarketProductGroup, orderbooks: Map<string, MarketState>, covarianceMetadata: CovarianceMetadata }>;
     creationTime: number;
 };
 
@@ -215,6 +232,7 @@ type ApiFill = {
     slot: number;
     inserted_at: Date;
     taker_side: string;
+    mpg: string;
     maker_order_id: number;
     quote_size: number;
     base_size: number;
@@ -233,6 +251,12 @@ export class Manifest {
     base_api_url: string;
     slot: number;
     timestamp: Date;
+    rws: ReliableWebSocket;
+    accountSubscribeId: number;
+    pk2SubscriptionId: Map<string, number>;
+    wsId2SubscriptionId: Map<number, number>;
+    pk2LastUpdateTimestamp: Map<number, number>;
+    websocketHeartbeatPeriodMs: number;
 
     constructor(fields: ManifestFields) {
         this.fields = fields;
@@ -241,11 +265,14 @@ export class Manifest {
         } else {
             this.base_api_url = "https://dexterity.hxro.com/";
         }
+        this.rws = null;
+        this.accountSubscribeId = 1;
+        this.websocketHeartbeatPeriodMs = 5000;
     }
 
     setWallet(wallet) {
-        const confirmOptions: ConfirmOptions = { preflightCommitment: 'processed' };
-        const connection = new Connection(this.fields.rpc, confirmOptions.preflightCommitment);
+        const confirmOptions: web3.ConfirmOptions = { preflightCommitment: 'processed' };
+        const connection = new web3.Connection(this.fields.rpc, confirmOptions.preflightCommitment);
         const provider = new AnchorProvider(connection, wallet, confirmOptions);
         let dexProgram = createDexProgram(provider);
         let instrumentsProgram = createInstrumentsProgram(provider);
@@ -256,116 +283,316 @@ export class Manifest {
         this.fields.wallet = wallet;
     }
 
-    static GetRiskAndFeeSigner(mpg: PublicKey): PublicKey {
-        return PublicKey.findProgramAddressSync([mpg.toBuffer()], new PublicKey(DEX_ID))[0]
+    static GetRiskAndFeeSigner(mpg: web3.PublicKey): web3.PublicKey {
+        return web3.PublicKey.findProgramAddressSync([mpg.toBuffer()], new web3.PublicKey(DEX_ID))[0]
     }
 
-    static GetStakePool(): PublicKey {
-        return new PublicKey("9zdpqAgENj4734TQvqjczMg2ekvvuGsxwJC6f7F1QWp4");
+    static GetStakePool(): web3.PublicKey {
+        return new web3.PublicKey("9zdpqAgENj4734TQvqjczMg2ekvvuGsxwJC6f7F1QWp4");
     }
 
-    getRiskS(marketProductGroup: PublicKey, mpg): PublicKey {
-        return PublicKey.findProgramAddressSync([Buffer.from("s", "utf-8"), marketProductGroup.toBuffer()], new PublicKey(mpg.riskEngineProgramId))[0];
+    getRiskS(marketProductGroup: web3.PublicKey, mpg): web3.PublicKey {
+        return web3.PublicKey.findProgramAddressSync([Buffer.from("s", "utf-8"), marketProductGroup.toBuffer()], new web3.PublicKey(mpg.riskEngineProgramId))[0];
     }
 
-    getRiskR(marketProductGroup: PublicKey, mpg): PublicKey {
-        return PublicKey.findProgramAddressSync([Buffer.from("r", "utf-8"), marketProductGroup.toBuffer()], new PublicKey(mpg.riskEngineProgramId))[0];
+    getRiskR(marketProductGroup: web3.PublicKey, mpg): web3.PublicKey {
+        return web3.PublicKey.findProgramAddressSync([Buffer.from("r", "utf-8"), marketProductGroup.toBuffer()], new web3.PublicKey(mpg.riskEngineProgramId))[0];
     }
 
-    static async GetATAFromMPGObject(mpg: MarketProductGroup, wallet: PublicKey) {
+    static async GetATAFromMPGObject(mpg: MarketProductGroup, wallet: web3.PublicKey) {
         return await getAssociatedTokenAddress(
             mpg.vaultMint,
             wallet
         );
     }
 
-    accountSubscribe(pk, parseDataFn, onUpdateFn, useCache = true) {
-        const pkStr = pk.toBase58();
-        const key = this.fields.rpc + ':' + pkStr;
-        if (false && useCache && account2WebSocket.has(key)) {// disable caching for now
-            const rws = account2WebSocket.get(key);
-            if (rws.isClosed) {
-                console.log('somehow cached ReliableWebSocket was closed. Running re-opening code again');
-                const newRws = this.accountSubscribe(pk, parseDataFn, onUpdateFn);
-                rws.socket = newRws.socket;
-                console.debug('re-opened the websocket to', pkStr, ' after it somehow got deleted ');
-            }
-            rws.addRef();
-            return rws;
-        }
-        let socket = new WebSocket(toWebSocket(this.fields.rpc));
-        socket.addEventListener('open', _ => {
-            socket.send(JSON.stringify({
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'accountSubscribe',
-                'params': [
-                    pkStr,
-                    {
-                        'encoding': 'base64',
-                        'commitment': 'processed'
-                    }
-                ]
+    primeWebsocket(pk, parseDataFn, onUpdateFn) {
+        if (this.rws === null) {
+            let socket = new WebSocket(toWebSocket(this.fields.rpc));
+            socket.addEventListener('error', (async event => {
+                // console.log(event);
+                // console.error(`websocket for ${pkStr} saw error event ${event}`);
             }));
-        });
-        socket.addEventListener('error', (async event => {
-            // console.log(event);
-            // console.error(`websocket for ${pkStr} saw error event ${event}`);
-        }));
-        socket.addEventListener('message', (async event => {
+            socket.addEventListener('close', async _ => {
+                this.accountSubscribe(pk, parseDataFn, onUpdateFn);
+                // console.debug('server closed the websocket to', pkStr, 'so we re-opened it');
+            });
+            this.rws = new ReliableWebSocket(socket);
+            socket.addEventListener('open', _ => {});
+            this.wsId2SubscriptionId = new Map();
+            this.pk2SubscriptionId = new Map();
+            this.pk2LastUpdateTimestamp = new Map();
+
+        }
+        return this.rws;
+    }
+
+    getAccountSubscribeId() {
+        const id = this.accountSubscribeId;
+        this.accountSubscribeId += 1;
+        return id;
+    }
+
+    accountSubscribe(pk, parseDataFn, onUpdateFn) {
+        this.primeWebsocket(pk, parseDataFn, onUpdateFn);
+        const wsId = this.getAccountSubscribeId();
+        const pkStr = pk.toBase58();
+        const subscriptionId = this.pk2SubscriptionId.get(pkStr);
+        const sendSubscribe = typeof subscriptionId !== undefined;
+        if (sendSubscribe) {
+            this.wsId2SubscriptionId.set(wsId, subscriptionId);
+        }
+        this.rws.socket.addEventListener('message', (async event => {
             const msg = JSON.parse(event.data);
             if (typeof msg.result === 'number') {
                 // initial PONG gives {"jsonrpc": "2.0","result":<SOME NUMBER>,"id":1}
-                return;
-            }
-            onUpdateFn(await parseDataFn(Buffer.from(msg.params.result.value.data[0], 'base64'), this), msg.params.result.context.slot);
-        }).bind(this));
-        let rws = new ReliableWebSocket(socket);
-        if (false && useCache) { // disable caching for now
-            account2WebSocket.set(key, rws);
-        }
-        socket.addEventListener('close', async _ => {
-            if (rws.isClosed) {
-                console.debug('closed websocket on purpose');
-                if (false && useCache) { // disable caching for now
-                    account2WebSocket.delete(key);
+                if (msg.id === wsId) {
+                    this.wsId2SubscriptionId.set(wsId, msg.result);
+                    this.pk2SubscriptionId.set(pkStr, msg.result);
+                    this.pk2LastUpdateTimestamp.set(pkStr, Date.now());
+                    let heartbeatId = setInterval(() => {
+                        const now = Date.now();
+                        const lastUpdate = this.pk2LastUpdateTimestamp.get(pkStr);
+                        if (now - lastUpdate > this.websocketHeartbeatPeriodMs) {
+                            // console.log('havent seen update for', pkStr, 'for', this.websocketHeartbeatPeriodMs, 'ms so sending unsubscribe and re-subscribing');
+                            clearInterval(heartbeatId);
+                            this.rws.socket.send(JSON.stringify({
+                                'jsonrpc': '2.0',
+                                'id': msg.result,
+                                'method': 'accountUnsubscribe',
+                                'params': [
+                                    pkStr,
+                                    {
+                                        'encoding': 'base64',
+                                        'commitment': 'processed'
+                                    }
+                                ]
+                            }));
+                            this.rws.socket.send(JSON.stringify({
+                                'jsonrpc': '2.0',
+                                'id': wsId,
+                                'method': 'accountSubscribe',
+                                'params': [
+                                    pkStr,
+                                    {
+                                        'encoding': 'base64',
+                                        'commitment': 'processed'
+                                    }
+                                ]
+                            }));
+                        }
+                    }, this.websocketHeartbeatPeriodMs);
                 }
                 return;
             }
-            const newRws = this.accountSubscribe(pk, parseDataFn, onUpdateFn);
-            rws.socket = newRws.socket;
-            console.debug('server closed the websocket to', pkStr, 'so we re-opened it');
-        });
+            if (msg.params?.subscription && msg.params.subscription === this.wsId2SubscriptionId.get(wsId)) {
+                // msg.params?.subscription
+                // that expression is needed because when we send accountUnsubscribe, the response doesn't have .subscription ^^^
+                // console.log('saw update for', pkStr);
+                this.pk2LastUpdateTimestamp.set(pkStr, Date.now());
+                onUpdateFn(await parseDataFn(Buffer.from(msg.params.result.value.data[0], 'base64'), this), msg.params.result.context.slot);
+            }
+        }).bind(this));
+        if (sendSubscribe) {
+            if (this.rws.socket.readyState === 1) {
+                this.rws.socket.send(JSON.stringify({
+                    'jsonrpc': '2.0',
+                    'id': wsId,
+                    'method': 'accountSubscribe',
+                    'params': [
+                        pkStr,
+                        {
+                            'encoding': 'base64',
+                            'commitment': 'processed'
+                        }
+                    ]
+                }));
+            } else {
+                this.rws.socket.addEventListener('open', (async event => {
+                    this.rws.socket.send(JSON.stringify({
+                        'jsonrpc': '2.0',
+                        'id': wsId,
+                        'method': 'accountSubscribe',
+                        'params': [
+                            pkStr,
+                            {
+                                'encoding': 'base64',
+                                'commitment': 'processed'
+                            }
+                        ]
+                    }));
+                }));
+            }
+        }
         // @ts-ignore
-        rws.getSnapshot = (async () => {
-            const accinfo = await this.fields.connection.getAccountInfo(pk);
-            onUpdateFn(await parseDataFn(accinfo.data, this));
+        this.rws.getSnapshot = (async () => {
+            // specifically commented out because now everything flows through the same, single rws object
+            // so getSnapshot doesn't make sense.
+            // const accinfo = await this.fields.connection.getAccountInfo(pk);
+            // onUpdateFn(await parseDataFn(accinfo.data, this));
         }).bind(this);
         // @ts-ignore
-        rws.getSnapshot();
-        return rws;
+        // rws.getSnapshot();
+        const getSnapshot = (async () => {
+            const accinfo = await this.fields.connection.getAccountInfo(pk);
+            this.pk2LastUpdateTimestamp.set(pkStr, Date.now());
+            onUpdateFn(await parseDataFn(accinfo.data, this));
+        });
+        getSnapshot();
+        return this.rws;
     }
 
-    static GetMarkPrice(markPrices: MarkPricesArray, productKey: PublicKey): Fractional {
+    static EventQueueFromData(data, marketState) {
+        return EventQueue.parse(marketState.callBackInfoLen, data);
+    }
+
+    static FillsFromEventQueue(eventQueue, meta) {
+        const offsetFrac = Fractional.From(meta.priceOffset);
+        const tickSize = Fractional.From(meta.tickSize);
+        const count = eventQueue.header.count.toNumber();
+        const fills = [];
+        for (let i = 0; i < count; i++) {
+            const event = eventQueue.parseEvent(i);
+            if (event instanceof EventFill) {
+                const fill = event;
+                const baseQty = Fractional.New(fill.baseSize, meta.baseDecimals);
+                // TODO idk why typescript doesn't believe "EventFill | EventOut" has the field "quoteSize"
+                // @ts-ignore
+                const quoteQty = Fractional.New(fill.quoteSize, meta.baseDecimals);
+                // there is a bug in the version of @bonfida/aaob that we use. We have to hack the callbackinfo parsing like so:
+                const makerCallbackInfo = fill.makerCallbackInfo.slice(0, fill.makerCallbackInfo.length / 2);
+                const takerCallbackInfo = fill.makerCallbackInfo.slice(fill.makerCallbackInfo.length / 2);
+                fills.push({
+                    price: quoteQty.div(baseQty).mul(tickSize).sub(offsetFrac),
+                    quantity: baseQty,
+                    // TODO idk why typescript doesn't believe "EventFill | EventOut" has the field "takerSide"
+                    // @ts-ignore
+                    isBidAgressor: fill.takerSide === 0,
+                    maker: new web3.PublicKey(makerCallbackInfo.slice(0, 32)),
+                    taker: new web3.PublicKey(takerCallbackInfo.slice(0, 32)),
+                    makerOrderId: fill.makerOrderId,
+                    takerOrderNonce: new BN(takerCallbackInfo.slice(40, 56), undefined, 'le'),
+                    takerClientOrderId: new BN(takerCallbackInfo.slice(takerCallbackInfo.length - 8), undefined, 'le'),
+                    makerClientOrderId: new BN(makerCallbackInfo.slice(makerCallbackInfo.length - 8), undefined, 'le'),
+                });
+            }
+        }
+        return fills;
+    }
+
+    static OutsFromEventQueue(eventQueue, meta) {
+        const offsetFrac = Fractional.From(meta.priceOffset);
+        const tickSize = Fractional.From(meta.tickSize);
+        const count = eventQueue.header.count.toNumber();
+        const outs = [];
+        for (let i = 0; i < count; i++) {
+            const event = eventQueue.parseEvent(i);
+            if (event instanceof EventOut) {
+                const baseQty = Fractional.New(event.baseSize, meta.baseDecimals);
+                outs.push({
+                    quantity: baseQty,
+                    orderId: event.orderId,
+                    maker: new web3.PublicKey(event.callBackInfo.slice(0, 32)),
+                    openOrdersIndex: new BN(event.callBackInfo.slice(32, 40), undefined, 'le'),
+                    clientOrderId: new BN(event.callBackInfo.slice(event.callBackInfo.length - 8), undefined, 'le'),
+                    isBid: event.side === 0,
+                });
+            }
+        }
+        return outs;
+    }
+
+    static GetFundingRate(markPrices: MarkPricesArray, productKey: web3.PublicKey, mfp = null, ffp = null, mpg = null): Fractional {
+        const markPrice = Manifest.GetMarkPrice(markPrices, productKey, mpg);
+        const indexPrice = Manifest.GetIndexPrice(markPrices, productKey, mpg);
+        if (mfp == null) {
+            mfp = Fractional.New(1, 0);
+        }
+        if (ffp == null) {
+            ffp = Fractional.New(24, 0);
+        }
+        return (markPrice.sub(indexPrice)).div(indexPrice).mul(mfp).div(ffp);
+    }
+
+    static GetMarkPrice(markPrices: MarkPricesArray, productKey: web3.PublicKey, mpg: MarketProductGroup = null): Fractional {
         for (const mp of markPrices.array) {
-            if (mp.productKey.equals(productKey)) { // idk how equality works with solana PublicKey
+            if (mp.productKey.equals(productKey)) { // idk how equality works with solana web3.PublicKey
                 return Manifest.FromFastInt(mp.markPrice.value);
             }
         }
-        return Fractional.Nan();
+        // assume it's a combo
+        const combo = Manifest.GetProductOfMpg(mpg, productKey)?.combo?.combo;
+        if (!combo) {
+            return Fractional.Nan();
+        }
+        let markPrice = Fractional.Zero();
+        const numLegs = combo.numLegs.toNumber();
+        for (let i = 0; i < numLegs; i++) {
+            const leg = combo.legs[i];
+            markPrice = markPrice.add(Fractional.New(leg.ratio.toNumber(), 0).mul(Manifest.GetMarkPrice(markPrices, leg.productKey)));
+        }
+        return markPrice;
     }
 
-    static GetMarkPriceOracleMinusBookEwma(markPrices: MarkPricesArray, productKey: PublicKey): Fractional {
+    static GetMarkPriceOracleMinusBookEwma(markPrices: MarkPricesArray, productKey: web3.PublicKey, mpg: MarketProductGroup = null): Fractional {
         for (const mp of markPrices.array) {
-            if (mp.productKey.equals(productKey)) { // idk how equality works with solana PublicKey
+            if (mp.productKey.equals(productKey)) { // idk how equality works with solana web3.PublicKey
                 return Manifest.FromFastInt(mp.oracleMinusBookEwma.value);
             }
         }
-        return Fractional.Nan();
+        // assume it's a combo
+        const combo = Manifest.GetProductOfMpg(mpg, productKey)?.combo?.combo;
+        if (!combo) {
+            return Fractional.Nan();
+        }
+        let spread = Fractional.Zero();
+        const numLegs = combo.numLegs.toNumber();
+        for (let i = 0; i < numLegs; i++) {
+            const leg = combo.legs[i];
+            spread = spread.add(Fractional.New(leg.ratio.toNumber(), 0).mul(Manifest.GetMarkPriceOracleMinusBookEwma(markPrices, leg.productKey)));
+        }
+        return spread;
     }
 
-    static GetIndexPrice(markPrices: MarkPricesArray, productKey: PublicKey): Fractional {
-        return Manifest.GetMarkPrice(markPrices, productKey).sub(Manifest.GetMarkPriceOracleMinusBookEwma(markPrices, productKey));
+    static GetIndexPrice(markPrices: MarkPricesArray, productKey: web3.PublicKey, mpg: MarketProductGroup = null): Fractional {
+        const markPrice = Manifest.GetMarkPrice(markPrices, productKey, mpg);
+        const priceOracleMinusBookEwma = Manifest.GetMarkPriceOracleMinusBookEwma(markPrices, productKey, mpg);
+        if (!markPrice.isNan() && !priceOracleMinusBookEwma.isNan()) {
+            return markPrice.add(priceOracleMinusBookEwma);
+        }
+        // assume it's a combo
+        const combo = Manifest.GetProductOfMpg(mpg, productKey)?.combo?.combo;
+        if (!combo) {
+            return Fractional.Nan();
+        }
+        let indexPrice = Fractional.Zero();
+        const numLegs = combo.numLegs.toNumber();
+        for (let i = 0; i < numLegs; i++) {
+            const leg = combo.legs[i];
+            indexPrice = indexPrice.add(Fractional.New(leg.ratio.toNumber(), 0).mul(Manifest.GetIndexPrice(markPrices, leg.productKey)));
+        }
+        return indexPrice;
+    }
+
+    static GetMidpointPrice(mpg: MarketProductGroup, productKey: web3.PublicKey): Fractional {
+        const product = Manifest.GetProductOfMpg(mpg, productKey);
+        if (!product) {
+            return Fractional.Nan();
+        }
+        const meta = productToMeta(product);
+        const ask = Fractional.From(meta.prices.ask);
+        const bid = Fractional.From(meta.prices.bid);
+        const book = ask.add(bid).div(Fractional.New(2, 0));
+        const isAskValid = !(ask.m.eq(MAX_ASK) && ask.exp.eq(ZERO_BN));
+        const isBidValid = !(bid.m.eq(MIN_BID) && bid.exp.eq(ZERO_BN));
+        if (isAskValid && isBidValid) {
+            return book;
+        } else if (isAskValid) {
+            return ask;
+        } else if (isBidValid) {
+            return bid;
+        }
+        return Fractional.Nan();
     }
 
     static FromFastInt(bn: BN): Fractional {
@@ -389,7 +616,7 @@ export class Manifest {
         return await dexProgram.account.paddedMarketProductGroup._coder.accounts.decodeUnchecked('PaddedMarketProductGroup', data);
     }
 
-    async getMPG(mpg: PublicKey): Promise<MarketProductGroup> {
+    async getMPG(mpg: web3.PublicKey): Promise<MarketProductGroup> {
         const mpgAccInfo = await this.fields.dexProgram.account.paddedMarketProductGroup.getAccountInfo(mpg);
         return await this.getMPGFromData(mpgAccInfo.data);
     }
@@ -407,6 +634,18 @@ export class Manifest {
         return m;
     }
 
+    static GetProductOfMpg(mpg: MarketProductGroup, productKey: web3.PublicKey) {
+        let product;
+        for (const p of mpg.marketProducts.array) {
+            if (productStatus(p, mpg.marketProducts.array) !== 'initialized') {
+                continue;
+            }
+            if (productToMeta(p).productKey.equals(productKey)) {
+                return p;
+            }
+        }
+    }
+
     static GetActiveProductsOfMPG(mpg: MarketProductGroup) {
         let m = new Map();
         let i = -1;
@@ -420,6 +659,19 @@ export class Manifest {
         return m;
     }
 
+    static GetProductIndex(mpg: MarketProductGroup, productKey: web3.PublicKey) {
+        let m = new Map();
+        let i = -1;
+        for (const p of mpg.marketProducts.array) {
+            i++;
+            const meta = productToMeta(p);
+            if (meta.productKey.equals(productKey)) {
+                return i;
+            }
+        }
+        return null;
+    }
+
     async getDerivativeMetadataFromData(data): Promise<DerivativeMetadata> {
         // @ts-ignore
         return await Manifest.GetDerivativeMetadataFromData(this.fields.instrumentsProgram, data);
@@ -430,34 +682,37 @@ export class Manifest {
         return await instrumentsProgram.account.paddedDerivativeMetadata._coder.accounts.decodeUnchecked('PaddedDerivativeMetadata', data);
     }
 
-    async getDerivativeMetadata(productKey: PublicKey): Promise<DerivativeMetadata> {
+    async getDerivativeMetadata(productKey: web3.PublicKey): Promise<DerivativeMetadata> {
         const dmAccInfo = await this.fields.instrumentsProgram.account.paddedDerivativeMetadata.getAccountInfo(productKey);
         return await this.getDerivativeMetadataFromData(dmAccInfo.data);
     }
 
     async getTRGFromData(data): Promise<TraderRiskGroup> {
-        if (data.length > TRG_SIZE) {
-            data = data.slice(0, TRG_SIZE);
-        } else if (data.length < TRG_SIZE) {
+        if (data.length < TRG_SIZE) {
             const newData = new Uint8Array(TRG_SIZE);
             newData.set(data);
             data = Buffer.from(newData);
         }
         // @ts-ignore
+        let trg = await this.fields.dexProgram.account.paddedTraderRiskGroup._coder.accounts.decodeUnchecked('PaddedTraderRiskGroup', data);
+        let max_open_orders = trg.openOrders.maxOpenOrders;
+        // @ts-ignore
+        let accountLayout = this.fields.dexProgram.account.paddedTraderRiskGroup._coder.accounts.accountLayouts.get('PaddedTraderRiskGroup');
+        let struct = accountLayout.fields[accountLayout.fields.length - 1];
+        struct.fields[5].span = max_open_orders * 40;
+        struct.fields[5].layout.fields[0].span = max_open_orders * 40;
+        struct.fields[5].layout.fields[0].count = max_open_orders;
+        // @ts-ignore
         return await this.fields.dexProgram.account.paddedTraderRiskGroup._coder.accounts.decodeUnchecked('PaddedTraderRiskGroup', data);
     }
 
-    async getTRG(trg: PublicKey): Promise<TraderRiskGroup> {
+    async getTRG(trg: web3.PublicKey): Promise<TraderRiskGroup> {
         let accinfo = await this.fields.dexProgram.account.paddedTraderRiskGroup.getAccountInfo(trg);
         return await this.getTRGFromData(accinfo.data);
     }
 
-    getMarkPricesAccount(marketProductGroup: PublicKey, mpg): PublicKey {
-        return PublicKey.findProgramAddressSync([Buffer.from("mark_prices", "utf-8"), marketProductGroup.toBuffer()], new PublicKey(mpg.riskEngineProgramId))[0];
-    }
-
-    ugh(str) {
-        return new PublicKey(str);
+    getMarkPricesAccount(marketProductGroup: web3.PublicKey, mpg): web3.PublicKey {
+        return web3.PublicKey.findProgramAddressSync([Buffer.from("mark_prices", "utf-8"), marketProductGroup.toBuffer()], new web3.PublicKey(mpg.riskEngineProgramId))[0];
     }
 
     async getMarkPricesFromData(data): Promise<MarkPricesArray> {
@@ -465,17 +720,17 @@ export class Manifest {
         return await this.fields.riskProgram.account.paddedMarkPricesArray._coder.accounts.decodeUnchecked('PaddedMarkPricesArray', data);
     }
 
-    async getMarkPrices(markPricesAccount: PublicKey): Promise<MarkPricesArray> {
+    async getMarkPrices(markPricesAccount: web3.PublicKey): Promise<MarkPricesArray> {
         let accinfo = await this.fields.riskProgram.account.paddedMarkPricesArray.getAccountInfo(markPricesAccount);
         return await this.getMarkPricesFromData(accinfo.data);
     }
 
-    async getVarianceCache(varianceCache: PublicKey): Promise<VarianceCache> {
+    async getVarianceCache(varianceCache: web3.PublicKey): Promise<VarianceCache> {
         const accinfo = await this.fields.connection.getAccountInfo(varianceCache);
         return accinfo.data;
     }
 
-    async getCovarianceMetadata(marketProductGroup: PublicKey, mpg): Promise<CovarianceMetadata> {
+    async getCovarianceMetadata(marketProductGroup: web3.PublicKey, mpg): Promise<CovarianceMetadata> {
         const accinfo = await this.fields.connection.getAccountInfo(this.getRiskS(marketProductGroup, mpg));
         return accinfo.data;
     }
@@ -597,38 +852,22 @@ export class Manifest {
     }
 
     streamTrades(product, marketState, onTradesFn): ReliableWebSocket {
-        const offsetFrac = Fractional.From(product.metadata.priceOffset);
+        let eventQueueSeqNum = 0;
         const socket = this.accountSubscribe(
             marketState.eventQueue,
             async (data, manifest) => {
-                const eventQueue = EventQueue.parse(marketState.callBackInfoLen, data);
+                const eventQueue = Manifest.EventQueueFromData(data, marketState);
                 const seqNum = eventQueue.header.seqNum.toNumber();
-                const count = eventQueue.header.count.toNumber();
-                if (seqNum <= socket.eventQueueSeqNum || count == 0) { return []; }
-                socket.eventQueueSeqNum = seqNum;
-                const fills = eventQueue.parseFill();
-                const trades = [];
-                for (const fill of fills) {
-                    const baseQty = Fractional.New(fill.baseSize, product.metadata.baseDecimals);
-                    // TODO idk why typescript doesn't believe "EventFill | EventOut" has the field "quoteSize"
-                    // @ts-ignore
-                    const quoteQty = Fractional.New(fill.quoteSize, product.metadata.baseDecimals);
-                    trades.push({
-                        price: quoteQty.div(baseQty).mul(Fractional.From(product.metadata.tickSize)).sub(offsetFrac),
-                        quantity: baseQty,
-                        // TODO idk why typescript doesn't believe "EventFill | EventOut" has the field "takerSide"
-                        // @ts-ignore
-                        isBidAgressor: fill.takerSide === 0
-                    });
-                }
-                return trades;
+                if (seqNum <= eventQueueSeqNum) { return []; }
+                eventQueueSeqNum = seqNum;
+                return Manifest.FillsFromEventQueue(eventQueue, product.metadata);
             },
             onTradesFn,
         );
         return socket;
     }
 
-    streamMPG(mpg: PublicKey, onUpdateFn): ReliableWebSocket {
+    streamMPG(mpg: web3.PublicKey, onUpdateFn): ReliableWebSocket {
         return this.accountSubscribe(
             mpg,
             (async (data, manifest) => await this.getMPGFromData(data)).bind(this),
@@ -636,8 +875,57 @@ export class Manifest {
         );
     }
 
+    async getOracle(product): Promise<web3.PublicKey> {
+        const dm = await this.getDerivativeMetadata(product);
+        return dm.priceOracle;
+    }
+
+    async streamPythPrice(product, onUpdateFn): Promise<ReliableWebSocket> {
+        return this.streamPythPriceFromPubkey(await this.getOracle(product), onUpdateFn);
+    }
+
+    async streamPythEma(product, onUpdateFn): Promise<ReliableWebSocket> {
+        return this.streamPythEmaFromPubkey(await this.getOracle(product), onUpdateFn);
+    }
+
+    streamPythEmaFromPubkey(oraclePubkey, onUpdateFn): ReliableWebSocket {
+        const socket = this.accountSubscribe(
+            oraclePubkey,
+            async (data, manifest) => {
+                const expOffset = 4*4 + 4;
+                const twapOffset = 4*4 + 4*4 + 8*2;
+                const expData = data.slice(expOffset, expOffset+4);
+                const twapData = data.slice(twapOffset, twapOffset+8);
+                const exp = new BN(expData, undefined, 'le').fromTwos(8*4).abs();
+                const twap = new BN(twapData, undefined, 'le').fromTwos(8*8);
+                return new Fractional(twap, exp);
+            },
+            onUpdateFn,
+        );
+        return socket;
+    }
+
+    streamPythPriceFromPubkey(oraclePubkey, onUpdateFn): ReliableWebSocket {
+        const socket = this.accountSubscribe(
+            oraclePubkey,
+            async (data, manifest) => {
+                const expOffset = 4*4 + 4;
+                const aggOffset = 4*4 + 4*4 + 8*2 + 24*2 + 8 + 1 + 1 + 2 + 4 + 32*2 + 8*4;
+                // this variable is named "agg" because that's what it's called in the pyth struct
+                // see "PriceAccountPythnet" in https://github.com/pyth-network/pyth-client/blob/main/program/rust/src/accounts/price.rs
+                const expData = data.slice(expOffset, expOffset+4);
+                const aggData = data.slice(aggOffset, aggOffset+8);
+                const exp = new BN(expData, undefined, 'le').fromTwos(8*4).abs();
+                const agg = new BN(aggData, undefined, 'le').fromTwos(8*8);
+                return new Fractional(agg, exp);
+            },
+            onUpdateFn,
+        );
+        return socket;
+    }
+
     // returns list of public keys
-    async getTRGsOfOwner(owner: PublicKey, marketProductGroup: PublicKey = null) {
+    async getTRGsOfOwner(owner: web3.PublicKey, marketProductGroup: web3.PublicKey = null) {
         const dexProgram = this.fields.dexProgram;
         const filters = [
             {
@@ -676,23 +964,28 @@ export class Manifest {
         return trgs;
     }
 
-    async getTRGsOfWallet(marketProductGroup: PublicKey = null) {
+    async getTRGsOfWallet(marketProductGroup: web3.PublicKey = null) {
         return await this.getTRGsOfOwner(this.fields.wallet.publicKey, marketProductGroup);
     }
 
-    async closeTrg(marketProductGroup: PublicKey, traderRiskGroup: PublicKey) {
+    async closeTrg(marketProductGroup: web3.PublicKey, traderRiskGroup: web3.PublicKey) {
         const dexProgram = this.fields.dexProgram;
         const connection = this.fields.dexProgram.provider.connection;
         const wallet = this.fields.wallet;
-
+        const mpg = await this.getMPG(marketProductGroup);
+        const trg = await this.getTRG(traderRiskGroup);
         {
-            const tx = new Transaction().add(
+            const tx = new web3.Transaction().add(
                 await dexProgram.instruction.closeTraderRiskGroup({
                     accounts: {
+                        riskEngineProgram: mpg.riskEngineProgramId,
+                        riskSigner: Manifest.GetRiskAndFeeSigner(marketProductGroup),
                         owner: wallet.publicKey,
                         traderRiskGroup: traderRiskGroup,
                         marketProductGroup: marketProductGroup,
+                        traderRiskStateAcct: trg.riskStateAccount,
                         receiver: wallet.publicKey,
+                        systemProgram: web3.SystemProgram.programId,
                     }
                 })
             );
@@ -711,14 +1004,14 @@ export class Manifest {
         }
     }
 
-    async createTrg(marketProductGroup: PublicKey) {
+    async createTrg(marketProductGroup: web3.PublicKey) {
         const dexProgram = this.fields.dexProgram;
         const connection = this.fields.dexProgram.provider.connection;
         const wallet = this.fields.wallet;
         const mpg = await this.getMPG(marketProductGroup);
-        const riskStateAccount = new Keypair();
-        const traderRiskGroup = new Keypair();
-        const [traderFeeAccount, traderFeeAccountBump] = PublicKey.findProgramAddressSync(
+        const riskStateAccount = new web3.Keypair();
+        const traderRiskGroup = new web3.Keypair();
+        const [traderFeeAccount, traderFeeAccountBump] = web3.PublicKey.findProgramAddressSync(
             [marketProductGroup.toBuffer(), traderRiskGroup.publicKey.toBuffer(), mpg.feeModelConfigurationAcct.toBuffer()],
             mpg.feeModelProgramId
         );
@@ -728,7 +1021,7 @@ export class Manifest {
             // create trg account ix + intialize trg ix
             const rentExemptionAmount =
                 await connection.getMinimumBalanceForRentExemption(TRG_SIZE);
-            const tx = new Transaction().add(
+            const tx = new web3.Transaction().add(
                 await dexProgram.account.traderRiskGroup.createInstruction(traderRiskGroup, TRG_SIZE)
             ).add(
                 await dexProgram.instruction.initializeTraderRiskGroup({ accounts: {
@@ -741,7 +1034,7 @@ export class Manifest {
                     riskEngineProgram: mpg.riskEngineProgramId,
                     feeModelConfigurationAcct: mpg.feeModelConfigurationAcct,
                     feeModelProgram: mpg.feeModelProgramId,
-                    systemProgram: SystemProgram.programId,
+                    systemProgram: web3.SystemProgram.programId,
                 }})
             );
             try {
@@ -761,8 +1054,8 @@ export class Manifest {
         return traderRiskGroup.publicKey;
     }
 
-    async fetchOrderbooks(marketProductGroup: PublicKey = null)  {
-        const confirmOptions: ConfirmOptions = { preflightCommitment: 'processed' }; // TODO: pull from this
+    async fetchOrderbooks(marketProductGroup: web3.PublicKey = null)  {
+        const confirmOptions: web3.ConfirmOptions = { preflightCommitment: 'processed' }; // TODO: pull from this
         for (const [k, { pubkey, mpg, orderbooks, covarianceMetadata }] of this.fields.mpgs) {
             if (marketProductGroup !== null && !pubkey.equals(marketProductGroup)) {
                 continue;
@@ -787,8 +1080,8 @@ export class Manifest {
             this.fields.mpgs.set(k, { pubkey, mpg, orderbooks, covarianceMetadata });
         }
     }
-    async fetchOrderbook(orderbook: PublicKey)  {
-        const confirmOptions: ConfirmOptions = { preflightCommitment: 'processed' }; // TODO: pull from this
+    async fetchOrderbook(orderbook: web3.PublicKey)  {
+        const confirmOptions: web3.ConfirmOptions = { preflightCommitment: 'processed' }; // TODO: pull from this
         let result = null;
         for (const [k, { pubkey, mpg, orderbooks, covarianceMetadata }] of this.fields.mpgs) {
             for (let [productName, { index, product }] of Manifest.GetActiveProductsOfMPG(mpg)) {
@@ -812,7 +1105,7 @@ export class Manifest {
         return result;
     }
 
-    async getFills(productName: string, trg: PublicKey, before: number, after: number) {
+    async getFills(productName: string, trg: web3.PublicKey, before: number, after: number) {
         try {
             let url = `${this.base_api_url}/fills?product=${productName}`;
             if (trg != null) {
@@ -849,7 +1142,7 @@ export class Manifest {
         }
     }
 
-    async updateOrderbooks(marketProductGroup: PublicKey) {
+    async updateOrderbooks(marketProductGroup: web3.PublicKey) {
         const { pubkey, mpg, orderbooks } = this.fields.mpgs.get(marketProductGroup.toBase58());
         for (let [productName, { index, product }] of Manifest.GetActiveProductsOfMPG(mpg)) {
             const meta = productToMeta(product);
@@ -886,7 +1179,7 @@ export class Manifest {
         return new BN(data.slice(offset,offset+size), undefined, 'le');
     }
 
-    getStds(marketProductGroup: PublicKey) {
+    getStds(marketProductGroup: web3.PublicKey) {
         const { covarianceMetadata } = this.fields.mpgs.get(marketProductGroup.toBase58());
         let offset = 8 + // anchor discriminator
             8 + // tag
@@ -896,7 +1189,7 @@ export class Manifest {
         offset += 8;
         let stds = new Map();
         for (let i = 0; i < numActiveProducts; i++) {
-            const pubkey = new PublicKey(covarianceMetadata.slice(offset+32*i,offset+32*(i+1)));
+            const pubkey = new web3.PublicKey(covarianceMetadata.slice(offset+32*i,offset+32*(i+1)));
             const std = Manifest.FromFastInt(Manifest.GetRiskNumber(covarianceMetadata, offset+MAX_OUTRIGHTS*32+16*i, 16, true));
             stds.set(pubkey.toBase58(), std);
         }
@@ -906,13 +1199,13 @@ export class Manifest {
 
 async function getManifest(rpc: string, useCache = false, wallet: DexterityWallet | Wallet): Promise<Manifest> {
     const key = wallet ? (wallet.publicKey + ':' + rpc) : (':' + rpc);
-    console.debug('getting manifest', key);
+    // console.debug('getting manifest', key);
     if (useCache && rpc2manifest.has(key)) {
-        console.debug('using cache to get manifest', key);
+        // console.debug('using cache to get manifest', key);
         return rpc2manifest.get(key);
     }
-    const confirmOptions: ConfirmOptions = { preflightCommitment: 'processed' };
-    const connection = new Connection(rpc, confirmOptions.preflightCommitment);
+    const confirmOptions: web3.ConfirmOptions = { preflightCommitment: 'processed' };
+    const connection = new web3.Connection(rpc, confirmOptions.preflightCommitment);
     const provider = new AnchorProvider(connection, wallet, confirmOptions);
     let dexProgram = createDexProgram(provider);
     let instrumentsProgram = createInstrumentsProgram(provider);
@@ -920,7 +1213,7 @@ async function getManifest(rpc: string, useCache = false, wallet: DexterityWalle
 
     // todo: remove this field from Manifest and grab it from orderbook object upon placing order
     let aaob_id = null;
-    
+
     const accounts = await connection.getParsedProgramAccounts(
         DEX_ID,
         { filters: [
@@ -970,44 +1263,9 @@ async function getManifest(rpc: string, useCache = false, wallet: DexterityWalle
         creationTime: Date.now(),
     });
     rpc2manifest.set(key, manifest);
-    console.debug('cached manifest', rpc);
-    console.debug('got manifest', manifest);
+    // console.debug('cached manifest', rpc);
+    // console.debug('got manifest', manifest);
     return manifest;
-}
-
-async function getAccountAtDate(publicKey: PublicKey, date: Date) {
-    let paramsStr = `?timestamps=${date.getTime()}`;
-    const result = await _getAccountAt(publicKey, paramsStr);
-    return { date: new Date(result[0]), data: result[1] };
-}
-
-async function getAccountAtSlot(publicKey: PublicKey, slot: number)  {
-    let paramsStr = `?slots=${slot}`;
-    const result = await _getAccountAt(publicKey, paramsStr);
-    return { slot: result[0], data: result[1] };
-}
-
-async function _getAccountAt(publicKey: PublicKey, paramsStr: string)  {
-    const SOLRAY_SECRET = process?.env?.API_SECRET ?? '';
-    const timestamp = Date.now();
-    const authHeader = `Basic ${btoa(`:${SOLRAY_SECRET}`)}`;
-    const url = `https://solray.app/api/accounts/${publicKey.toString()}${paramsStr}`;
-    const response = await fetch(url, {
-        headers: {
-            Authorization: authHeader,
-        },
-    });
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const result = (await response.json())[0];
-    const binaryString = atob(result[1]);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return [result[0], Buffer.from(bytes)];
 }
 
 function bytesToString(bytes) {
@@ -1052,9 +1310,11 @@ class Fractional {
     }
 
     static FromString(s: string): Fractional {
-        if (isNaN(parseFloat(s))) {
+        const f = parseFloat(s);
+        if (isNaN(f)) {
             return Fractional.Nan();
         }
+        s = f.toString();
         const i = s.indexOf('.');
         if (i < 0) {
             return new Fractional(new BN(s.replace(/\./g, '')), new BN(0));
@@ -1144,7 +1404,7 @@ class Fractional {
     }
 
     add(other: Fractional): Fractional {
-        if (this._isNan) {
+        if (this._isNan || other._isNan) {
             return Fractional.Nan();
         }
         const cmp = this.exp.cmp(other.exp);
@@ -1239,7 +1499,7 @@ class Fractional {
     }
 
     mul(other): Fractional {
-        if (this._isNan) {
+        if (this._isNan || other._isNan) {
             return Fractional.Nan();
         }
 	const r1 = this.reduced();
@@ -1372,6 +1632,10 @@ class Fractional {
     }
 }
 
+const MAX_ASK = new BN(2).pow(new BN(63)).subn(1);
+const MIN_BID = new BN(2).pow(new BN(63)).neg();
+const ZERO_BN = new BN(0);
+
 const NUM_LIQUIDATION_STDS = Fractional.New(15, 1);
 const NUM_UNHEALTHY_STDS = Fractional.New(3, 0);
 
@@ -1415,6 +1679,10 @@ function productToMeta(p) {
     }
 }
 
+function productToName(p) {
+    return bytesToString(productToMeta(p).name);
+}
+
 type VarianceCache = Uint8Array;
 type CovarianceMetadata = Uint8Array;
 
@@ -1423,6 +1691,7 @@ enum TraderUpdateType {
     MPG,
     Risk,
     MarkPrices,
+    EventQueue,
 }
 
 type Slot = number;
@@ -1431,81 +1700,52 @@ type Slot = number;
 // one or more trader risk groups per market product group
 export class Trader {
     manifest: Manifest;
-    feeAccount: PublicKey;
+    feeAccount: web3.PublicKey;
     feeAccountBump: number;
-    marketProductGroup: PublicKey;
-    traderRiskGroup: PublicKey;
-    riskStateAccount: PublicKey;
-    markPricesAccount: PublicKey;
-    hardcodedOracle: PublicKey;
-    priceOracles: Map<string, PublicKey>;
+    marketProductGroup: web3.PublicKey;
+    traderRiskGroup: web3.PublicKey;
+    riskStateAccount: web3.PublicKey;
+    markPricesAccount: web3.PublicKey;
+    hardcodedOracle: web3.PublicKey;
+    priceOracles: Map<string, web3.PublicKey>;
+    // maps product pk str to EventQueue object. Updated via websocket.
+    eventQueues: Map<string, EventQueue>;
 
     mpg: MarketProductGroup;
     trg: TraderRiskGroup;
     varianceCache: VarianceCache;
     markPrices: MarkPricesArray;
-    addressLookupTableAccount: AddressLookupTableAccount;
+    addressLookupTableAccount: web3.AddressLookupTableAccount;
 
-    trgSocket: ReliableWebSocket;
-    mpgSocket: ReliableWebSocket;
-    riskSocket: ReliableWebSocket;
-    markPricesSocket: ReliableWebSocket;
-
-    trgDate: Date;
-    mpgDate: Date;
-    riskDate: Date;
-    markPricesDate: Date;
     trgSlot: Slot;
     mpgSlot: Slot;
     riskSlot: Slot;
     markPricesSlot: Slot;
-    isPaused: boolean;
 
     skipThingsThatRequireWalletConnection: boolean;
+    priorityFeesMicroLamports: number;
 
     constructor(
         manifest: Manifest,
-        traderRiskGroup: PublicKey,
+        traderRiskGroup: web3.PublicKey,
         skipThingsThatRequireWalletConnection: boolean = false,
+        priorityFeesMicroLamports: number = 60000,
     ) {
         this.manifest = manifest;
         this.traderRiskGroup = traderRiskGroup;
         this.skipThingsThatRequireWalletConnection = skipThingsThatRequireWalletConnection;
-        this.isPaused = false;
-        console.debug('trader:', this);
-    }
-
-    async timeTravelToDate(toDate: Date) {
-        this.disconnect();
-        this.isPaused = true;
-        this.trgDate = null;
-        this.mpgDate = null;
-        this.riskDate = null;
-        this.markPricesDate = null;
-        this.trgSlot = null;
-        this.mpgSlot = null;
-        this.riskSlot = null;
-        this.markPricesSlot = null;
-        // console.log('time travelling to ', toDate, 'old portfolio value', this.getPortfolioValue().toString(), 'old position value', this.getPositionValue().toString(), 'old cash', this.getNetCash().toString(), 'old PERP position', this.getPositions().get('BTCUSD-PERP     ').toString());
-        let result = await getAccountAtDate(this.marketProductGroup, toDate);
-        this.mpg = await this.manifest.getMPGFromData(result.data);
-        this.mpgDate = result.date;
-        result = await getAccountAtDate(this.traderRiskGroup, toDate);
-        this.trg = await this.manifest.getTRGFromData(result.data);
-        this.trgDate = result.date;
-        result = await getAccountAtDate(this.trg.riskStateAccount, toDate);
-        this.varianceCache = result.data;
-        this.riskDate = result.date;
-        result = await getAccountAtDate(this.markPricesAccount, toDate);
-        this.markPrices = await this.manifest.getMarkPricesFromData(result.data);
-        this.markPricesDate = result.date;
-        // console.log('success! time travelled to', toDate, 'new portfolio value', this.getPortfolioValue().toString(), 'new position value', this.getPositionValue().toString(), 'new cash', this.getNetCash().toString(), 'new PERP position', this.getPositions().get('BTCUSD-PERP     ').toString());
+        this.priorityFeesMicroLamports = priorityFeesMicroLamports;
+        this.eventQueues = new Map();
     }
 
     getProducts() {
         return Manifest.GetProductsOfMPG(this.mpg);
     }
 
+    // getPositions returns the list of positions on the cached view of the TRG.
+    // It does not take into account information from the EventQueue.
+    // The EventQueue reveals that certain orders have already been partially or fully filled
+    // or canceled.
     getPositions() {
         let m = new Map();
         for (let p of this.trg.traderPositions) {
@@ -1517,8 +1757,141 @@ export class Trader {
         return m;
     }
 
+    // getPositionsOptimistic returns the list of positions on the cached view of the TRG,
+    // combining information from the EventQueue.
+    // The EventQueue reveals that certain orders have already been partially or fully filled
+    // or canceled.
+    getPositionsOptimistic() {
+        const mpgPkStr = this.marketProductGroup.toBase58();
+        let m = new Map();
+        for (let p of this.trg.traderPositions) {
+            const pkStr = p.productKey.toBase58();
+            if (pkStr === UNINITIALIZED || "uninitialized" in p.tag) {
+                continue;
+            }
+            const product = Manifest.GetProductOfMpg(this.mpg, p.productKey);
+            const meta = productToMeta(product);
+            const name = productToName(product);
+            const hasEventQueue = this.eventQueues.has(pkStr);
+            const fillEvents = hasEventQueue ?
+                Manifest.FillsFromEventQueue(this.eventQueues.get(pkStr), meta) :
+                [];
+            let qty = Fractional.From(p.position);
+            for (const order of this.getOpenOrders([name])) {
+                for (const fill of fillEvents) {
+                    if (fill.makerOrderId.eq(order.id)) {
+                        if (order.isBid) {
+                            // console.log('saw corresponding fill in event queue! adding', fill.quantity.toString());
+                            qty = qty.add(fill.quantity);
+                        } else {
+                            // console.log('saw corresponding fill in event queue! deducting', fill.quantity.toString());
+                            qty = qty.sub(fill.quantity);
+                        }
+                    }
+                }
+            }
+
+            m.set(productToMeta(this.mpg.marketProducts.array[p.productIndex]).name.map(c => String.fromCharCode(c)).join(''), qty);
+        }
+        return m;
+    }
+
+    getMultiplaceIx(productIndex, orders, referrerTrg=null, referrerFeeBps=null, matchLimit=null) {
+        
+        // isBid, limitPrice: Fractional, maxBaseQty: Fractional, orderType=OrderType.Limit, clientOrderId=null,
+
+        const products = this.getProducts();
+        let product = null;
+        for (let { index, product: someProduct } of products.values()) {
+            if (index === productIndex) {
+                product = someProduct;
+                break;
+            }
+        }
+        if (product === null) {
+            throw new Error('could not place new order because no product with that index exists. index: ' + productIndex);
+        }
+        if (product.hasOwnProperty('outright')) {
+            product = product.outright.outright;
+        } else {
+            product = product.combo.combo;
+        }
+        const productPk = product.metadata.productKey;
+        const orderbookPk = product.metadata.orderbook;
+        const { orderbooks } = this.manifest.fields.mpgs.get(this.marketProductGroup.toBase58());
+        const orderbook = orderbooks.get(orderbookPk.toBase58());
+
+        const params = {
+            selfTradeBehavior: { cancelProvide: {} },
+            matchLimit: matchLimit ?? new BN(16),
+            referrerFeeBps: {
+                m: referrerFeeBps ? referrerFeeBps.m : new BN(0),
+                exp: referrerFeeBps ? referrerFeeBps.exp : new BN(0)
+            },
+            orders: []
+        };
+        for (const order of orders) {
+            const { isBid, orderType, maxBaseQty, limitPrice, clientOrderId } = order;
+            const side = isBid ? { bid: {} } : { ask: {} };
+            let oType;
+            if (orderType == OrderType.FillOrKill) oType = {fillOrKill: {}};
+            else if (orderType == OrderType.ImmediateOrCancel) oType = {immediateOrCancel: {}};
+            else if (orderType == OrderType.PostOnly) oType = {postOnly: {}};
+            else oType = {limit: {}};
+            params.orders.push({
+                side,
+                maxBaseQty: {
+                    m: maxBaseQty.m,
+                    exp: maxBaseQty.exp
+                },
+                orderType: oType,
+                limitPrice: {
+                    m: limitPrice.m,
+                    exp: limitPrice.exp
+                },
+                clientOrderId: clientOrderId ?? new BN(0),
+            });
+        }
+        const stakerStateKey: web3.PublicKey = web3.PublicKey.findProgramAddressSync(
+            [
+                this.manifest.fields.wallet.publicKey.toBuffer(),
+                Manifest.GetStakePool().toBuffer(),
+            ],
+            new web3.PublicKey(STAKING_ID),
+        )[0];
+        return this.manifest.fields.dexProgram.instruction.multiplace(params, { accounts: {
+            // @ts-ignore
+            user: this.manifest.fields.wallet.publicKey,
+            traderRiskGroup: this.traderRiskGroup,
+            marketProductGroup: this.marketProductGroup,
+            product: productPk,
+            aaobProgram: this.manifest.fields.aaob_id,
+            orderbook: orderbookPk,
+            marketSigner: orderbook.callerAuthority,
+            eventQueue: orderbook.eventQueue,
+            bids: orderbook.bids,
+            asks: orderbook.asks,
+            systemProgram: web3.SystemProgram.programId,
+            feeModelProgram: this.mpg.feeModelProgramId,
+            feeModelConfigurationAcct: this.mpg.feeModelConfigurationAcct,
+            traderFeeStateAcct: this.trg.feeStateAccount,
+            feeOutputRegister: this.mpg.feeOutputRegister,
+            riskEngineProgram: this.mpg.riskEngineProgramId,
+            riskModelConfigurationAcct: this.mpg.riskModelConfigurationAcct,
+            riskOutputRegister: this.mpg.riskOutputRegister,
+            traderRiskStateAcct: this.trg.riskStateAccount,
+            riskAndFeeSigner: Manifest.GetRiskAndFeeSigner(this.marketProductGroup),
+            covarianceMetadata: this.manifest.getRiskS(this.marketProductGroup, this.mpg),
+            correlationMatrix: this.manifest.getRiskR(this.marketProductGroup, this.mpg),
+            markPrices: this.markPricesAccount,
+            referrerTrg: referrerTrg ?? this.traderRiskGroup,
+            stakePool: Manifest.GetStakePool(),
+            stakerState: stakerStateKey,
+        }});
+    }
+
     getNewOrderIx(productIndex, isBid, limitPrice: Fractional, maxBaseQty: Fractional,
-                  isIOC=false, referrerTrg=null, referrerFeeBps=null, clientOrderId=null, matchLimit=null) {
+                  orderType=OrderType.Limit, referrerTrg=null, referrerFeeBps=null, clientOrderId=null, matchLimit=null) {
         const products = this.getProducts();
         let product = null;
         for (let { index, product: someProduct } of products.values()) {
@@ -1540,13 +1913,18 @@ export class Trader {
         const { orderbooks } = this.manifest.fields.mpgs.get(this.marketProductGroup.toBase58());
         const orderbook = orderbooks.get(orderbookPk.toBase58());
         const side = isBid ? { bid: {} } : { ask: {} };
+        let oType;
+        if (orderType == OrderType.FillOrKill) oType = {fillOrKill: {}};
+        else if (orderType == OrderType.ImmediateOrCancel) oType = {immediateOrCancel: {}};
+        else if (orderType == OrderType.PostOnly) oType = {postOnly: {}};
+        else oType = {limit: {}};
         const params = {
             side,
             maxBaseQty: {
                 m: maxBaseQty.m,
                 exp: maxBaseQty.exp
             },
-            orderType: !isIOC ? { limit: {} } : {immediateOrCancel: {}},
+            orderType: oType,
             selfTradeBehavior: { cancelProvide: {} },
             matchLimit: matchLimit ?? new BN(16),
             limitPrice: {
@@ -1556,15 +1934,15 @@ export class Trader {
             referrerFeeBps: {
                 m: referrerFeeBps ? referrerFeeBps.m : new BN(0),
                 exp: referrerFeeBps ? referrerFeeBps.exp : new BN(0)
-            },            
+            },
             clientOrderId: clientOrderId ?? new BN(0),
         };
-        const stakerStateKey: PublicKey = PublicKey.findProgramAddressSync(
+        const stakerStateKey: web3.PublicKey = web3.PublicKey.findProgramAddressSync(
             [
                 this.manifest.fields.wallet.publicKey.toBuffer(),
                 Manifest.GetStakePool().toBuffer(),
             ],
-            new PublicKey(STAKING_ID),
+            new web3.PublicKey(STAKING_ID),
         )[0];
         return this.manifest.fields.dexProgram.instruction.newOrder(params, { accounts: {
             // @ts-ignore
@@ -1578,7 +1956,7 @@ export class Trader {
             eventQueue: orderbook.eventQueue,
             bids: orderbook.bids,
             asks: orderbook.asks,
-            systemProgram: SystemProgram.programId,
+            systemProgram: web3.SystemProgram.programId,
             feeModelProgram: this.mpg.feeModelProgramId,
             feeModelConfigurationAcct: this.mpg.feeModelConfigurationAcct,
             traderFeeStateAcct: this.trg.feeStateAccount,
@@ -1598,39 +1976,48 @@ export class Trader {
     }
 
     async newOrder(productIndex, isBid, limitPrice: Fractional, maxBaseQty: Fractional,
-                   isIOC=false, referrerTrg=null, referrerFeeBps=null, clientOrderId=null,
+                   orderType=OrderType.Limit, referrerTrg=null, referrerFeeBps=null, clientOrderId=null,
                    matchLimit=null,
-                   callbacks
+                   callbacks,
                   ) {
-        return await this.sendTx([
-            ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
-            // this.getUpdateMarkPricesIx(),
-            this.getNewOrderIx(
-                productIndex, isBid, limitPrice, maxBaseQty, isIOC,
+        const ixs = [web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
+        if (this.addressLookupTableAccount) {
+            ixs.push(this.getUpdateMarkPricesIx());
+        }
+        ixs.push(this.getNewOrderIx(
+                productIndex, isBid, limitPrice, maxBaseQty, orderType,
                 referrerTrg, referrerFeeBps, clientOrderId, matchLimit
-            ),
-        ], callbacks);
+        ));
+        return await this.sendTx(ixs, callbacks);
     }
 
     async justNewOrder(productIndex, isBid, limitPrice: Fractional, maxBaseQty: Fractional,
-                   isIOC=false, referrerTrg=null, referrerFeeBps=null, clientOrderId=null,
+                   orderType=OrderType.Limit, referrerTrg=null, referrerFeeBps=null, clientOrderId=null,
                    matchLimit=null,
                    callbacks
                   ) {
         return await this.sendTx([
-            ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+            web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
             this.getNewOrderIx(
-                productIndex, isBid, limitPrice, maxBaseQty, isIOC,
+                productIndex, isBid, limitPrice, maxBaseQty, orderType,
                 referrerTrg, referrerFeeBps, clientOrderId, matchLimit
             ),
         ], callbacks);
     }
 
     async updateVarianceCache(callbacks = undefined) {
+        const ixs = [web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
+        if (this.addressLookupTableAccount) {
+            ixs.push(this.getUpdateMarkPricesIx());
+        }
+        ixs.push(this.getUpdateVarianceCacheIx());
+        return await this.sendTx(ixs, callbacks);
+    }
+
+    async justUpdateVarianceCache(callbacks = undefined) {
         return await this.sendTx([
-            ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
-            // this.getUpdateMarkPricesIx(),
-            this.getUpdateVarianceCacheIx(),
+            web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+            this.getUpdateVarianceCacheIx()
         ], callbacks);
     }
 
@@ -1641,7 +2028,7 @@ export class Trader {
             user: this.manifest.fields.wallet.publicKey,
             traderRiskGroup: this.traderRiskGroup,
             marketProductGroup: this.marketProductGroup,
-            systemProgram: SystemProgram.programId,
+            systemProgram: web3.SystemProgram.programId,
             riskEngineProgram: this.mpg.riskEngineProgramId,
             riskModelConfigurationAcct: this.mpg.riskModelConfigurationAcct,
             riskOutputRegister: this.mpg.riskOutputRegister,
@@ -1654,9 +2041,17 @@ export class Trader {
         return this.manifest.fields.dexProgram.instruction.updateVarianceCache({ accounts });
     }
 
-    getUpdateMarkPricesIx(products: Array<Product>) {
-        let markPriceAccounts = [];
+    getUpdateMarkPricesIx(products: Array<Product> = null) {
+        let remainingAccounts = [];
 
+        if (products === null || products.length === 0) {
+            products = [];
+            for (const [_, { product }] of this.getProducts()) {
+                products.push(product);
+            }
+        }
+
+        let numProducts = 0;
         const { orderbooks } = this.manifest.fields.mpgs.get(this.marketProductGroup.toBase58());
         for (let p of products) {
             if (!p.hasOwnProperty('outright')) continue;
@@ -1669,29 +2064,37 @@ export class Trader {
             const orderbookPk = meta.orderbook;
             const orderbook = orderbooks.get(orderbookPk.toBase58());
 
-            markPriceAccounts.push(productKey);
-            if (this.hardcodedOracle != null) { markPriceAccounts.push(this.hardcodedOracle); }
-            else { markPriceAccounts.push(this.priceOracles.get(productKey.toBase58())); }
-            markPriceAccounts.push(orderbookPk);
-            markPriceAccounts.push(orderbook.bids);
-            markPriceAccounts.push(orderbook.asks);
+            remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: productKey });
+            if (this.hardcodedOracle != null) {
+                remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: this.hardcodedOracle });
+            } else {
+                remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: this.priceOracles.get(productKey.toBase58()) });
+            }
+            remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: orderbookPk });
+            remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: orderbook.bids });
+            remainingAccounts.push({ isSigner: false, isWritable: false, pubkey: orderbook.asks });
+            numProducts += 1;
         }
 
-        const updateMarkPricesIx = this.manifest.fields.riskProgram.instruction.updateMarkPrices({ accounts: {
-            // @ts-ignore
-            payer: this.manifest.fields.wallet.publicKey,
-            marketProductGroup: this.marketProductGroup,
-            markPrices: this.markPricesAccount,
-        }});
+        const ix = this.manifest.fields.riskProgram.instruction.updateMarkPrices(
+            { numProducts: new BN(numProducts) },
+            {
+                accounts: {
+                    // @ts-ignore
+                    payer: this.manifest.fields.wallet.publicKey,
+                    marketProductGroup: this.marketProductGroup,
+                    markPrices: this.markPricesAccount,
+                },
+                remainingAccounts
+            }
+        );
 
-        for (const mp of markPriceAccounts) {
-            updateMarkPricesIx.keys.push({ isSigner: false, isWritable: true, pubkey: mp });
-        }
+        ix.data[8] = numProducts; // FUCK ANCHOR
 
-        return updateMarkPricesIx;
+        return ix;
     }
 
-    async initializePrintTrade(isBid, size, price, counterparty: PublicKey) {
+    async initializePrintTrade(isBid, size, price, counterparty: web3.PublicKey) {
         // TODO product should be parameter
         const products = this.getProducts();
         let productAndIndex = null;
@@ -1722,14 +2125,14 @@ export class Trader {
                 exp: price.exp
             }
         };
-        const printTrade: PublicKey = PublicKey.findProgramAddressSync(
+        const printTrade: web3.PublicKey = web3.PublicKey.findProgramAddressSync(
             [
                 Buffer.from("print_trade", "utf-8"),
                 productPk.toBuffer(),
                 this.traderRiskGroup.toBuffer(),
                 counterparty.toBuffer(),
             ],
-            new PublicKey(DEX_ID),
+            new web3.PublicKey(DEX_ID),
         )[0];
         const accounts = {
             user: this.manifest.fields.wallet.publicKey,
@@ -1738,7 +2141,7 @@ export class Trader {
             marketProductGroup: this.marketProductGroup,
             product: productPk,
             printTrade: printTrade,
-            systemProgram: SystemProgram.programId,
+            systemProgram: web3.SystemProgram.programId,
         }
         try {
             // console.log(params);
@@ -1756,6 +2159,10 @@ export class Trader {
         }
     }
 
+    // getOpenOrders returns the list of open orders on the cached view of the TRG.
+    // It does not take into account information from the EventQueue.
+    // The EventQueue reveals that certain orders have already been partially or fully filled
+    // or canceled.
     getOpenOrders(productNames): Set<Order> {
         const orders = new Set<Order>();
         let checkProduct = Array.isArray(productNames) && productNames.length > 0;
@@ -1770,9 +2177,9 @@ export class Trader {
             const priceOffset = Fractional.From(metadata.priceOffset);
             const baseDecimals = new BN(metadata.baseDecimals);
 
-            let ptr = this.trg.openOrders.products[index].headIndex.toNumber();
+            let ptr = this.trg.openOrders.products[index].headIndex;
             let order = this.trg.openOrders.orders[ptr];
-            if (order.prev.toNumber() !== SENTINEL) {
+            if (order.prev !== SENTINEL) {
                 throw new Error('openOrders state is invalid. expected first order.prev === SENTINEL\norder: ' + JSON.stringify(order));
             }
             while (ptr !== SENTINEL) {
@@ -1788,7 +2195,75 @@ export class Trader {
                     new Fractional(new BN(order.qty), baseDecimals),
                     Manifest.orderIdIsBid(order.id),
                 ));
-                ptr = order.next.toNumber();
+                ptr = order.next;
+            }
+        }
+        return orders;
+    }
+
+    // getOpenOrdersOptimistic returns the list of open orders on the cached view of the TRG,
+    // combining information from the EventQueue.
+    // The EventQueue reveals that certain orders have already been partially or fully filled
+    // or canceled.
+    getOpenOrdersOptimistic(productNames): Set<Order> {
+        const orders = new Set<Order>();
+        let checkProduct = Array.isArray(productNames) && productNames.length > 0;
+        for (const [name, { index, product }] of this.getProducts()) {
+            const trimmedName = name.trim();
+            if (checkProduct && !productNames.includes(trimmedName)) {
+                continue;
+            }
+
+            const metadata = productToMeta(product);
+            const pkStr = metadata.productKey.toString();
+            const tickSize = Fractional.From(metadata.tickSize);
+            const priceOffset = Fractional.From(metadata.priceOffset);
+            const baseDecimals = new BN(metadata.baseDecimals);
+
+            const hasEventQueue = this.eventQueues.has(pkStr);
+            const fillEvents = hasEventQueue ?
+                Manifest.FillsFromEventQueue(this.eventQueues.get(pkStr), metadata) :
+                [];
+            const outEvents = hasEventQueue ?
+                Manifest.OutsFromEventQueue(this.eventQueues.get(pkStr), metadata) :
+                [];
+
+            let ptr = this.trg.openOrders.products[index].headIndex;
+            let order = this.trg.openOrders.orders[ptr];
+            if (order.prev !== SENTINEL) {
+                throw new Error('openOrders state is invalid. expected first order.prev === SENTINEL\norder: ' + JSON.stringify(order));
+            }
+            const zero = Fractional.Zero();
+            while (ptr !== SENTINEL) {
+                order = this.trg.openOrders.orders[ptr];
+                if (order.id.isZero()) {
+                    throw new Error('expected order id !== 0. order: ' + JSON.stringify(order));
+                }
+                let qty = new Fractional(new BN(order.qty), baseDecimals);
+                for (const fill of fillEvents) {
+                    if (fill.makerOrderId.eq(order.id)) {
+                        // console.log('saw corresponding fill in event queue! deducting', fill.quantity.toString(), 'from order', order.id.toString());
+                        qty = qty.sub(fill.quantity);
+                    }
+                }
+                for (const out of outEvents) {
+                    if (out.orderId.eq(order.id)) {
+                        // console.log('saw corresponding out in event queue! omitting order ', order.id.toString());
+                        qty = zero;
+                        break;
+                    }
+                }
+                if (!qty.eq(zero)) {
+                    orders.add(new Order(
+                        order.id,
+                        trimmedName,
+                        index,
+                        Manifest.orderIdToDexPrice(order.id, tickSize, priceOffset),
+                        qty,
+                        Manifest.orderIdIsBid(order.id),
+                    ));
+                }
+                ptr = order.next;
             }
         }
         return orders;
@@ -1801,9 +2276,9 @@ export class Trader {
             if (name.trim() !== productName.trim()) {
                 continue;
             }
-            let ptr = this.trg.openOrders.products[index].headIndex.toNumber();
+            let ptr = this.trg.openOrders.products[index].headIndex;
             let order = this.trg.openOrders.orders[ptr];
-            if (order.prev.toNumber() !== SENTINEL) {
+            if (order.prev !== SENTINEL) {
                 throw new Error('openOrders state is invalid. expected first order.prev === SENTINEL\norder: ' + JSON.stringify(order));
             }
             while (ptr !== SENTINEL) {
@@ -1812,10 +2287,56 @@ export class Trader {
                     throw new Error('expected order id !== 0. order: ' + JSON.stringify(order));
                 }
                 orderIds.add(order.id.toString());
-                ptr = order.next.toNumber();
+                ptr = order.next;
             }
         }
         return orderIds;
+    }
+
+    getCancelAllIx(productIndex) {
+        let unwrappedProduct;
+        for (const [name, { index, product }] of this.getProducts()) {
+            if (index !== productIndex) {
+                continue;
+            }
+            if (product.hasOwnProperty('outright')) {
+                unwrappedProduct = product.outright.outright;
+            } else {
+                unwrappedProduct = product.combo.combo;
+            }
+            break;
+        }
+        const productPk = unwrappedProduct.metadata.productKey;
+        const orderbookPk = unwrappedProduct.metadata.orderbook;
+        const { orderbooks } = this.manifest.fields.mpgs.get(this.marketProductGroup.toBase58());
+        const orderbook = orderbooks.get(orderbookPk.toBase58());
+        const accounts = {
+            // @ts-ignore
+            user: this.manifest.fields.dexProgram.provider.wallet.publicKey,
+            traderRiskGroup: this.traderRiskGroup,
+            marketProductGroup: this.marketProductGroup,
+            product: productPk,
+            aaobProgram: this.manifest.fields.aaob_id,
+            orderbook: orderbookPk,
+            marketSigner: orderbook.callerAuthority,
+            eventQueue: orderbook.eventQueue,
+            bids: orderbook.bids,
+            asks: orderbook.asks,
+            feeModelProgram: this.mpg.feeModelProgramId,
+            feeModelConfigurationAcct: this.mpg.feeModelConfigurationAcct,
+            traderFeeStateAcct: this.trg.feeStateAccount,
+            feeOutputRegister: this.mpg.feeOutputRegister,
+            riskEngineProgram: this.mpg.riskEngineProgramId,
+            riskModelConfigurationAcct: this.mpg.riskModelConfigurationAcct,
+            riskOutputRegister: this.mpg.riskOutputRegister,
+            traderRiskStateAcct: this.trg.riskStateAccount,
+            riskSigner: Manifest.GetRiskAndFeeSigner(this.marketProductGroup),
+            covarianceMetadata: this.manifest.getRiskS(this.marketProductGroup, this.mpg),
+            correlationMatrix: this.manifest.getRiskR(this.marketProductGroup, this.mpg),
+            markPrices: this.markPricesAccount,
+        };
+        return this.manifest.fields.dexProgram.instruction
+            .cancelAll({}, { accounts });
     }
 
     getCancelOrderIx(productIndex, orderId, noErr = true, clientOrderId = null) {
@@ -1868,10 +2389,17 @@ export class Trader {
     }
 
     async cancelOrder(productIndex, orderId, noErr = true, clientOrderId = null, callbacks = undefined) {
-        return await this.sendTx([
-            this.getCancelOrderIx(productIndex, orderId, noErr = true, clientOrderId = null),
-            this.getUpdateVarianceCacheIx(),
-        ], callbacks);
+        const ixs = [];
+        const cancelIx = this.getCancelOrderIx(productIndex, orderId, noErr = true, clientOrderId = null);
+        if (this.addressLookupTableAccount) {
+            ixs.push(web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }));
+            ixs.push(this.getUpdateMarkPricesIx());
+            ixs.push(cancelIx);
+            ixs.push(this.getUpdateVarianceCacheIx());
+        } else {
+            ixs.push(cancelIx);
+        }
+        return await this.sendTx(ixs, callbacks);
     }
 
     // TODO: pack cancels for multiple products into one tx
@@ -1883,7 +2411,7 @@ export class Trader {
         for (let i = 0; i < orderIds.length; i += maxCancelsPerTx) {
             const isLastChunk = i + maxCancelsPerTx >= orderIds.length;
             const orderIdsChunk = orderIds.slice(i, i + maxCancelsPerTx);
-            const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
+            const ixs = [web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
             for (let y = 0; y < orderIdsChunk.length; y++) {
                 ixs.push(this.getCancelOrderIx(productIndex, orderIdsChunk[y], noErr, clientOrderIds !== null ? orderIdsChunk[y] : null));
             }
@@ -1894,6 +2422,17 @@ export class Trader {
             sigs.push(await this.sendTx(ixs, callbacks));
         }
         return sigs;
+    }
+
+    // TODO: pack cancels for multiple products into one tx
+    async cancelAllOrdersOneIx(productIndex, callbacks = undefined) {
+        const ixs = [
+            web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+            this.getUpdateMarkPricesIx(),
+            this.getCancelAllIx(productIndex),
+            this.getUpdateVarianceCacheIx(),
+        ];
+        return await this.sendTx(ixs, callbacks);
     }
 
     async justCancelOrder(productIndex, orderId, noErr = true, clientOrderId = null, callbacks = undefined) {
@@ -1911,13 +2450,22 @@ export class Trader {
         for (let i = 0; i < orderIds.length; i += maxCancelsPerTx) {
             const isLastChunk = i + maxCancelsPerTx >= orderIds.length;
             const orderIdsChunk = orderIds.slice(i, i + maxCancelsPerTx);
-            const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
+            const ixs = [web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS })];
             for (let y = 0; y < orderIdsChunk.length; y++) {
                 ixs.push(this.getCancelOrderIx(productIndex, orderIdsChunk[y], noErr, clientOrderIds !== null ? orderIdsChunk[y] : null));
             }
             sigs.push(await this.sendTx(ixs, callbacks));
         }
         return sigs;
+    }
+
+    // TODO: pack cancels for multiple products into one tx
+    async justCancelAllOrders(productIndex, callbacks = undefined) {
+        const ixs = [
+            web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+            this.getCancelAllIx(productIndex),
+        ];
+        return await this.sendTx(ixs, callbacks);
     }
 
     async cancelAllOrders(productNames, isUseCache = false, justIssueCancels = false, maxCancelsPerTx = MAX_CANCELS_PER_TX) {
@@ -1929,25 +2477,35 @@ export class Trader {
             if (productNames.length > 0 && !productNames.includes(name.trim())) {
                 continue;
             }
-            const orderIds = [];
-            let ptr = this.trg.openOrders.products[index].headIndex.toNumber();
-            let order = this.trg.openOrders.orders[ptr];
-            if (order.prev.toNumber() !== SENTINEL) {
-                throw new Error('openOrders state is invalid. expected first order.prev === SENTINEL. order: ' + JSON.stringify(order));
-            }
-            while (ptr !== SENTINEL) {
-                order = this.trg.openOrders.orders[ptr];
-                if (order.id.isZero()) {
-                    throw new Error('expected order id !== 0. order: ' + JSON.stringify(order));
-                }
-                orderIds.push(order.id);
-                ptr = order.next.toNumber();
-            }
-            if (orderIds.length > 0) {
+            try {
                 if (justIssueCancels) {
-                    sigs = sigs.concat(await this.justCancelOrders(index, orderIds, undefined, undefined, undefined, maxCancelsPerTx));
+                    sigs = sigs.concat(await this.justCancelAllOrders(index));
                 } else {
-                    sigs = sigs.concat(await this.cancelOrders(index, orderIds, undefined, undefined, undefined, maxCancelsPerTx));
+                    sigs = sigs.concat(await this.cancelAllOrdersOneIx(index));
+                }
+            } catch (error) {
+                console.error('cancel all ix failed with error:', error);
+                console.error('retrying with individual cancels');
+                const orderIds = [];
+                let ptr = this.trg.openOrders.products[index].headIndex;
+                let order = this.trg.openOrders.orders[ptr];
+                if (order.prev !== SENTINEL) {
+                    throw new Error('openOrders state is invalid. expected first order.prev === SENTINEL. order: ' + JSON.stringify(order));
+                }
+                while (ptr !== SENTINEL) {
+                    order = this.trg.openOrders.orders[ptr];
+                    if (order.id.isZero()) {
+                        throw new Error('expected order id !== 0. order: ' + JSON.stringify(order));
+                    }
+                    orderIds.push(order.id);
+                    ptr = order.next;
+                }
+                if (orderIds.length > 0) {
+                    if (justIssueCancels) {
+                        sigs = sigs.concat(await this.justCancelOrders(index, orderIds, undefined, undefined, undefined, maxCancelsPerTx));
+                    } else {
+                        sigs = sigs.concat(await this.cancelOrders(index, orderIds, undefined, undefined, undefined, maxCancelsPerTx));
+                    }
                 }
             }
         }
@@ -1956,8 +2514,8 @@ export class Trader {
 
     async getDepositIx(usdcAmount: Fractional) {
         const tradersVaultATA = await Manifest.GetATAFromMPGObject(this.mpg, this.manifest.fields.wallet.publicKey);
-        const vaultNotMint = PublicKey.findProgramAddressSync([Buffer.from("market_vault", "utf-8"), this.marketProductGroup.toBuffer()], new PublicKey(DEX_ID))[0];
-        const capitalLimits = PublicKey.findProgramAddressSync([Buffer.from("capital_limits_state", "utf-8"), this.marketProductGroup.toBuffer()], new PublicKey(DEX_ID))[0];
+        const vaultNotMint = web3.PublicKey.findProgramAddressSync([Buffer.from("market_vault", "utf-8"), this.marketProductGroup.toBuffer()], new web3.PublicKey(DEX_ID))[0];
+        const capitalLimits = web3.PublicKey.findProgramAddressSync([Buffer.from("capital_limits_state", "utf-8"), this.marketProductGroup.toBuffer()], new web3.PublicKey(DEX_ID))[0];
         const accounts = {
             tokenProgram: TOKEN_PROGRAM_ID,
             user: this.manifest.fields.wallet.publicKey,
@@ -1981,6 +2539,17 @@ export class Trader {
             .then((res) => res.value);
     }
 
+    async signTx(wallet, tx) {
+        try {
+            const signedTx = await wallet.signTransaction(tx);
+            return signedTx;
+        } catch (e) {
+            // console.error('failed to sign tx', e);
+        }
+        tx.sign([wallet.payer]);
+        return tx;
+    }
+
     async sendV0Tx(ixs, { onGettingBlockHashFn, onGotBlockHashFn, onTxSentFn }
         = { onGettingBlockHashFn: null, onGotBlockHashFn: null, onTxSentFn: null})
     {
@@ -1996,14 +2565,14 @@ export class Trader {
         if (onGettingBlockHashFn) {
             onGettingBlockHashFn();
         }
-        const tx = new VersionedTransaction(new TransactionMessage({
+        const tx = new web3.VersionedTransaction(new web3.TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: blockhash,
             instructions: ixs,
         }).compileToV0Message(addressLookupTableAccounts));
-     
-        await tx.sign([wallet.payer]);
-        const signature = await connection.sendRawTransaction(tx.serialize());
+
+        const signedTx = await this.signTx(wallet, tx);
+        const signature = await connection.sendRawTransaction(signedTx.serialize());
         if (onTxSentFn) {
             onTxSentFn(signature);
         }
@@ -2017,7 +2586,7 @@ export class Trader {
         const wallet = this.manifest.fields.dexProgram.provider.wallet;
         const connection = this.manifest.fields.dexProgram.provider.connection;
 
-        const tx = new Transaction();
+        const tx = new web3.Transaction();
         for (const ix of ixs) {
             tx.add(ix);
         }
@@ -2030,7 +2599,7 @@ export class Trader {
             onGettingBlockHashFn();
         }
         tx.recentBlockhash = blockhash;
-        tx.feePayer = wallet.publicKey;        
+        tx.feePayer = wallet.publicKey;
         const signedTx = await wallet.signTransaction(tx);
         const signature = await connection.sendRawTransaction(signedTx.serialize());
         if (onTxSentFn) {
@@ -2041,6 +2610,11 @@ export class Trader {
     }
 
     async sendTx(ixs, callbacks) {
+        if (this.priorityFeesMicroLamports > 0) {
+            ixs.unshift(
+                web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: this.priorityFeesMicroLamports }),
+            );
+        }
         if (!this.addressLookupTableAccount) {
             return await this.sendLegacyTx(ixs, callbacks);
         }
@@ -2049,7 +2623,7 @@ export class Trader {
 
     async deposit(usdcAmount: Fractional, callbacks) {
         return await this.sendTx([
-            ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+            web3.ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
             await this.getDepositIx(usdcAmount),
             this.getUpdateVarianceCacheIx(),
         ], callbacks);
@@ -2059,7 +2633,7 @@ export class Trader {
         return await this.sendTx([await this.getDepositIx(usdcAmount)], callbacks);
     }
 
-    async updateTraderRiskGroupOwner(newOwner: PublicKey, oldOwner: PublicKey = null) {
+    async updateTraderRiskGroupOwner(newOwner: web3.PublicKey, oldOwner: web3.PublicKey = null) {
         try {
             if (oldOwner === null) {
                 oldOwner = this.manifest.fields.wallet.publicKey;
@@ -2079,24 +2653,26 @@ export class Trader {
             return;
         }
     }
-
-    async withdraw(usdcAmount: Fractional) {
-        try {
+    /**
+     * @param {Fractional} usdcAmount Amount to withdraw from Trader Account
+     * @returns {Promise<web3.TransactionInstruction[]>} TransactionInstruction Array
+     */
+    async getWithdrawIx(usdcAmount: Fractional): Promise<web3.TransactionInstruction[]> {
             const tradersVaultATA = await Manifest.GetATAFromMPGObject(this.mpg, this.manifest.fields.wallet.publicKey);
             const tradersVaultATAInfo = await this.manifest.fields.connection.getAccountInfo(tradersVaultATA);
             let createAtaIx = null;
             if (!tradersVaultATAInfo) {
                 createAtaIx = createAssociatedTokenAccountInstruction(
                     this.manifest.fields.wallet.publicKey, // fee payer
-                    tradersVaultATA, // ata  
+                    tradersVaultATA, // ata
                     this.manifest.fields.wallet.publicKey, // owner,
                     this.mpg.vaultMint, // mint
                 );
-                console.log('creating traders ata for withdraw because it does not exist');
+                // console.log('creating traders ata for withdraw because it does not exist');
             }
-            const vaultNotMint = PublicKey.findProgramAddressSync([Buffer.from("market_vault", "utf-8"), this.marketProductGroup.toBuffer()], new PublicKey(DEX_ID))[0];
-            const capitalLimits = PublicKey.findProgramAddressSync([Buffer.from("capital_limits_state", "utf-8"), this.marketProductGroup.toBuffer()], new PublicKey(DEX_ID))[0];
-            console.log('tradersVaultATA:', tradersVaultATA.toString(), 'vaultNotMint:', vaultNotMint.toString(), 'capitalLimits:', capitalLimits.toString());
+            const vaultNotMint = web3.PublicKey.findProgramAddressSync([Buffer.from("market_vault", "utf-8"), this.marketProductGroup.toBuffer()], new web3.PublicKey(DEX_ID))[0];
+            const capitalLimits = web3.PublicKey.findProgramAddressSync([Buffer.from("capital_limits_state", "utf-8"), this.marketProductGroup.toBuffer()], new web3.PublicKey(DEX_ID))[0];
+            // console.log('tradersVaultATA:', tradersVaultATA.toString(), 'vaultNotMint:', vaultNotMint.toString(), 'capitalLimits:', capitalLimits.toString());
             const accounts = {
                 tokenProgram: TOKEN_PROGRAM_ID,
                 user: this.manifest.fields.wallet.publicKey,
@@ -2114,25 +2690,24 @@ export class Trader {
                 capitalLimits: capitalLimits,
                 markPrices: this.markPricesAccount,
             };
-            const tx = new Transaction();
+            const ixArr: web3.TransactionInstruction[] = []
             if (createAtaIx !== null) {
-                tx.add(createAtaIx);
+                ixArr.push(createAtaIx);
             }
-            tx.add(
+            ixArr.push(
                 this.manifest.fields.dexProgram.instruction.withdrawFunds(
                     { quantity: { m: usdcAmount.m,  exp: usdcAmount.exp } },
                     { accounts }
                 )
             );
-            const connection = this.manifest.fields.dexProgram.provider.connection;
-            // @ts-ignore
-            const wallet = this.manifest.fields.dexProgram.provider.wallet;
-            let { blockhash } = await connection.getRecentBlockhash();
-            tx.recentBlockhash = blockhash;
-            tx.feePayer = wallet.publicKey;
-            const signedTx = await wallet.signTransaction(tx);
-            const signature = await connection.sendRawTransaction(signedTx.serialize());
-            await connection.confirmTransaction(signature);
+            return ixArr
+    }
+
+    async withdraw(usdcAmount: Fractional, callbacks: any): Promise<string> {
+        try {
+            const withdrawIxArr = await this.getWithdrawIx(usdcAmount)
+            const txnHash = await this.sendTx(withdrawIxArr, callbacks)
+            return txnHash
         } catch (e) {
             console.error(e);
             console.error(e.logs);
@@ -2144,24 +2719,14 @@ export class Trader {
         await this.manifest.updateOrderbooks(this.marketProductGroup);
     }
 
-    disconnect() {
-        this.trgSocket?.close();
-        this.mpgSocket?.close();
-        this.riskSocket?.close();
-        this.markPricesSocket?.close();
-    }
-
     streamUpdates(onUpdateFn) {
-        this.disconnect();
-
-        console.log(`streaming updates.... ${this.traderRiskGroup?.toBase58()} ${this.marketProductGroup?.toBase58()} ${this.trg.riskStateAccount?.toBase58()} ${this.markPricesAccount?.toBase58()}`);
-        this.trgSocket = this.manifest.accountSubscribe(
+        this.manifest.accountSubscribe(
             this.traderRiskGroup,
             async (data, manifest) => await this.manifest.getTRGFromData(data),
             ((trg, slot) => { this.trg = trg; this.trgSlot = slot; onUpdateFn(TraderUpdateType.TRG); }).bind(this),
         );
 
-        this.mpgSocket = this.manifest.accountSubscribe(
+        this.manifest.accountSubscribe(
             this.marketProductGroup,
             async (data, manifest) => await this.manifest.getMPGFromData(data),
             (async mpg => {
@@ -2170,17 +2735,40 @@ export class Trader {
             }).bind(this),
         );
 
-        this.riskSocket = this.manifest.accountSubscribe(
+        this.manifest.accountSubscribe(
             this.trg.riskStateAccount,
             async (data, manifest) => data,
-            (varianceCache => { this.varianceCache = varianceCache; onUpdateFn(TraderUpdateType.Risk); }).bind(this),
+            (varianceCache => {
+                this.varianceCache = varianceCache;
+                onUpdateFn(TraderUpdateType.Risk);
+            }).bind(this),
         );
 
-        this.markPricesSocket = this.manifest.accountSubscribe(
+        this.manifest.accountSubscribe(
             this.markPricesAccount,
             async (data, manifest) => await this.manifest.getMarkPricesFromData(data),
-            (markPrices => { this.markPrices = markPrices; onUpdateFn(TraderUpdateType.MarkPrices); }).bind(this),
+            (markPrices => {
+                this.markPrices = markPrices;
+                onUpdateFn(TraderUpdateType.MarkPrices);
+            }).bind(this),
         );
+
+        for (const [name, { index, product }] of this.getProducts()) {
+            const meta = productToMeta(product);
+            const productPk = meta.productKey;
+            const productPkStr = productPk.toString();
+            const orderbookPk = meta.orderbook;
+            const { orderbooks } = this.manifest.fields.mpgs.get(this.marketProductGroup.toBase58());
+            const orderbook = orderbooks.get(orderbookPk.toBase58());
+            this.manifest.accountSubscribe(
+                orderbook.eventQueue,
+                async (data, manifest) => Manifest.EventQueueFromData(data, orderbook),
+                (eventQueue => {
+                    this.eventQueues.set(productPkStr, eventQueue);
+                    onUpdateFn(TraderUpdateType.EventQueue);
+                }).bind(this),
+            );
+        }
     }
 
     async updateRisk() {
@@ -2252,6 +2840,17 @@ export class Trader {
         if (this.varianceCache) {
             return this.getPositionValue().add(this.getNetCash());
         }
+    }
+
+    guessPortfolioValue() {
+        let sum = this.getNetCash();
+        for (let p of this.trg.traderPositions) {
+            if (p.productKey.toBase58() === UNINITIALIZED || "uninitialized" in p.tag) {
+                continue;
+            }
+            sum = sum.add(Fractional.From(p.position).mul(Manifest.GetMarkPrice(this.markPrices, p.productKey)));
+        }
+        return sum;
     }
 
     getTotalDeposited() {
@@ -2362,18 +2961,13 @@ export class Trader {
         this.trg = await this.manifest.getTRG(this.traderRiskGroup);
         await this.updateRisk();
         if (isUpdateMPG) {
-            this.marketProductGroup = new PublicKey(this.trg.marketProductGroup.toBase58());
+            this.marketProductGroup = new web3.PublicKey(this.trg.marketProductGroup.toBase58());
             this.mpg = await this.manifest.getMPG(this.marketProductGroup);
         }
         await this.updateMarkPrices(); // specifcally do this AFTER updating MPG
     }
 
     async connect(streamUpdatesCallback, initialUpdateCallback) {
-        this.isPaused = false;
-        this.trgDate = null;
-        this.mpgDate = null;
-        this.riskDate = null;
-        this.markPricesDate = null;
         this.trgSlot = null;
         this.mpgSlot = null;
         this.riskSlot = null;
@@ -2381,7 +2975,7 @@ export class Trader {
         await this.update();
         if (typeof initialUpdateCallback === 'function') {
             initialUpdateCallback();
-        }        
+        }
         if (!this.skipThingsThatRequireWalletConnection) {
             if (this.trg.owner.toBase58() !== this.manifest.fields.wallet.publicKey.toBase58()) {
                 throw new Error('Expected this.trg.owner === given wallet pubkey. '+
@@ -2396,15 +2990,15 @@ export class Trader {
 }
 
 function createDexProgram(provider: AnchorProvider) {
-    return new Program(DEX_IDL, new PublicKey(DEX_ID), provider);
+    return new Program(DEX_IDL, new web3.PublicKey(DEX_ID), provider);
 }
 
 function createInstrumentsProgram(provider: AnchorProvider) {
-    return new Program(INSTRUMENTS_IDL, new PublicKey(INSTRUMENTS_ID), provider);
+    return new Program(INSTRUMENTS_IDL, new web3.PublicKey(INSTRUMENTS_ID), provider);
 }
 
 function createRiskProgram(provider: AnchorProvider) {
-    return new Program(RISK_IDL, new PublicKey(RISK_ID), provider);
+    return new Program(RISK_IDL, new web3.PublicKey(RISK_ID), provider);
 }
 
 export default {
@@ -2415,9 +3009,14 @@ export default {
     Manifest,
     productStatus,
     productToMeta,
+    productToName,
     rpc2manifest, // exported for debugging purposes
     Trader,
     TraderUpdateType,
     BN,
     web3,
+    ORACLE_TYPE_PYTH,
+    INSTRUMENT_TYPE_RECURRING_CALL,
+    INSTRUMENT_TYPE_EXPIRING_CALL,
+    DEX_ID,
 };
